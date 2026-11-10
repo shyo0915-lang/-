@@ -1,4 +1,5 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -58,6 +59,7 @@ class _MapPageState extends State<MapPage> {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
     final sheetHeight = switch (app.sheet) {
       SheetLevel.closed => 0.0,
       SheetLevel.peak => 110.0,
@@ -115,6 +117,11 @@ class _MapPageState extends State<MapPage> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      if (kIsWeb)
+                        _roundButton(Icons.list_alt, '管理画面', () {
+                          launchUrl(Uri.base.resolve('admin/'));
+                        }),
+                      if (kIsWeb) const SizedBox(width: 8),
                       _roundButton(Icons.tune, '設定', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsPage(state: app)))),
                       if (app.conflicts.isNotEmpty) ...[
                         const SizedBox(width: 8),
@@ -146,9 +153,9 @@ class _MapPageState extends State<MapPage> {
             ),
           ),
           if (app.repo.sampleMode)
-            const Positioned(
+            Positioned(
               left: 12,
-              bottom: 28,
+              bottom: 28 + safeBottom,
               child: DecoratedBox(
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.all(Radius.circular(8))),
                 child: Padding(
@@ -160,13 +167,13 @@ class _MapPageState extends State<MapPage> {
           if (app.sheet == SheetLevel.closed)
             Positioned(
               right: 16,
-              bottom: 108,
+              bottom: 108 + safeBottom,
               child: _roundButton(Icons.my_location, '現在地', _myLocation),
             ),
           if (app.sheet == SheetLevel.closed)
             Positioned(
               right: 16,
-              bottom: 28,
+              bottom: 28 + safeBottom,
               child: FloatingActionButton.large(
                 heroTag: 'camera',
                 tooltip: '契約書を撮影して新規登録',

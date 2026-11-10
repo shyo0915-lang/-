@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import '../logic/price_tiers.dart';
 import '../logic/status_rules.dart';
 import '../models/models.dart';
+import 'local_database.dart';
 import 'repository.dart';
 
 const sampleOrgId = 'b0000000-0000-4000-8000-000000000001';
@@ -136,12 +139,13 @@ List<Customer> sampleCustomers() => [
 ];
 
 class SampleRepository implements AppRepository {
-  SampleRepository({DateTime Function()? clock, String Function()? ids})
+  SampleRepository({DateTime Function()? clock, String Function()? ids, this.storage})
     : _clock = clock ?? DateTime.now,
       _ids = ids ?? _fallbackId;
 
   final DateTime Function() _clock;
   final String Function() _ids;
+  final LocalDatabase? storage;
   final List<Customer> _customers = sampleCustomers();
   final List<CustomerStatus> _statuses = defaultStatuses();
   PriceTierConfig _tiers = PriceTierConfig.defaults;
@@ -185,7 +189,77 @@ class SampleRepository implements AppRepository {
   );
 
   @override
-  Future<void> init() async {}
+  Future<void> init() async {
+    final db = storage;
+    if (db == null) return;
+    try {
+      final saved = await db.customers();
+      if (saved.isEmpty) {
+        await _persist();
+        return;
+      }
+      _customers
+        ..clear()
+        ..addAll(saved);
+      final statuses = await db.statuses();
+      if (statuses.isNotEmpty) {
+        _statuses
+          ..clear()
+          ..addAll(statuses);
+      }
+      final tiers = await db.meta('price_tiers');
+      if (tiers != null && tiers.isNotEmpty) _tiers = decodeTier(tiers);
+      final shareRaw = await db.meta('shares');
+      if (shareRaw != null && shareRaw.isNotEmpty) {
+        final list = jsonDecode(shareRaw) as List;
+        _shares
+          ..clear()
+          ..addAll(list.map((item) {
+            final row = item as Map<String, dynamic>;
+            return CustomerShare(
+              customerId: row['customerId'] as String,
+              userId: row['userId'] as String,
+              userName: row['userName'] as String? ?? '',
+              role: row['role'] as String? ?? 'viewer',
+              expiresAt: DateTime.tryParse(row['expiresAt'] as String? ?? ''),
+            );
+          }));
+      }
+    } catch (_) {
+      // 保存領域が使えなくてもサンプル表示は続ける。
+    }
+  }
+
+  Future<void> _persist() async {
+    final db = storage;
+    if (db == null) return;
+    try {
+      final existing = await db.customers();
+      for (final old in existing) {
+        if (_customers.every((customer) => customer.id != old.id)) {
+          await db.deleteCustomer(old.id);
+        }
+      }
+      for (final customer in _customers) {
+        await db.upsertCustomer(customer);
+      }
+      await db.saveStatuses(_statuses);
+      await db.setMeta('price_tiers', encodeTier(_tiers));
+      await db.setMeta(
+        'shares',
+        jsonEncode([
+          for (final share in _shares)
+            {
+              'customerId': share.customerId,
+              'userId': share.userId,
+              'userName': share.userName,
+              'role': share.role,
+              'expiresAt': share.expiresAt?.toIso8601String(),
+            },
+        ]),
+      );
+    } catch (_) {}
+  }
 
   @override
   Future<String?> signIn(String email, String password) async => 'サンプルモードではログインしません';
@@ -221,6 +295,7 @@ class SampleRepository implements AppRepository {
     } else {
       _customers.add(saved);
     }
+    await _persist();
     return saved;
   }
 
@@ -228,6 +303,7 @@ class SampleRepository implements AppRepository {
   Future<void> archiveCustomer(String id) async {
     _customers.removeWhere((customer) => customer.id == id);
     _shares.removeWhere((share) => share.customerId == id);
+    await _persist();
   }
 
   @override
@@ -251,6 +327,7 @@ class SampleRepository implements AppRepository {
       }
       _statuses[index] = status;
     }
+    await _persist();
     return null;
   }
 
@@ -269,6 +346,7 @@ class SampleRepository implements AppRepository {
       }
     }
     _statuses.removeWhere((item) => item.id == id);
+    await _persist();
     return null;
   }
 
@@ -278,6 +356,7 @@ class SampleRepository implements AppRepository {
       final index = _statuses.indexWhere((status) => status.id == orderedIds[i]);
       if (index >= 0) _statuses[index] = _statuses[index].copyWith(sortOrder: i);
     }
+    await _persist();
   }
 
   @override
@@ -288,6 +367,7 @@ class SampleRepository implements AppRepository {
     final message = config.validate();
     if (message != null) return message;
     _tiers = PriceTierConfig(List<int>.from(config.boundaries), personal: true);
+    await _persist();
     return null;
   }
 
@@ -317,12 +397,14 @@ class SampleRepository implements AppRepository {
     final member = members.cast<OrgMember?>().firstWhere((item) => item!.id == userId, orElse: () => null);
     if (member == null || !member.active) return '同じ会社の有効な社員を選んでください';
     _shares.add(CustomerShare(customerId: customerId, userId: userId, userName: member.displayName, role: role, expiresAt: expiresAt));
+    await _persist();
     return null;
   }
 
   @override
   Future<String?> revokeShare(String customerId, String userId) async {
     _shares.removeWhere((share) => share.customerId == customerId && share.userId == userId);
+    await _persist();
     return null;
   }
 
@@ -332,7 +414,10 @@ class SampleRepository implements AppRepository {
   @override
   Future<void> resolveConflict({required SyncConflict conflict, required bool useDevice}) async {
     _conflicts.removeWhere((item) => item.id == conflict.id);
-    if (!useDevice) return;
+    if (!useDevice) {
+      await _persist();
+      return;
+    }
     final index = _customers.indexWhere((customer) => customer.id == conflict.customerId);
     if (index < 0) return;
     final current = _customers[index];
@@ -343,6 +428,7 @@ class SampleRepository implements AppRepository {
       'address' => current.copyWith(address: conflict.deviceValue),
       _ => current,
     };
+    await _persist();
   }
 
   @override
@@ -353,5 +439,6 @@ class SampleRepository implements AppRepository {
     _images[customerId] = path;
     final index = _customers.indexWhere((customer) => customer.id == customerId);
     if (index >= 0) _customers[index] = _customers[index].copyWith(imageLocalPath: path);
+    await _persist();
   }
 }
