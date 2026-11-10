@@ -1,0 +1,17 @@
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+android/.gradle/
+android/local.properties
+android/key.properties
+ios/Pods/
+ios/.symlinks/
+**/Generated.xcconfig
+**/.env
+web-admin/config.js
+config/dart_defines.json
+*.iml
+.idea/
+.DS_Store
