@@ -106,7 +106,7 @@ function renderLogin() {
       <label>メールアドレス<input name="email" type="email" required /></label>
       <label>パスワード<input name="password" type="password" required /></label>
       <button class="primary" type="submit">ログイン</button>
-      <p class="muted">初回ユーザーはアプリの登録、または seed の taro@example.com / password123 を使います。</p>
+      <p class="muted">はじめての人は、スマホのアプリで会社名を付けて登録します。招待されたメールアドレスなら、その会社に入ります。</p>
       <p id="login-error" class="error"></p>
     </form>`;
   $("login").addEventListener("submit", async (event) => {
@@ -138,13 +138,18 @@ async function afterLogin(authSession) {
 }
 
 async function reloadRemote() {
-  const [customers, statuses, members, tiers, shares] = await Promise.all([
+  const [customers, statuses, members, tiers, shares, photoRows] = await Promise.all([
     client.from("customers").select("id, name, phone, address, memo, lat, lng, owner_id, status_id, version, contracts(id, contract_date, unit_price, format, contract_images(storage_path, page_no))").is("deleted_at", null),
     client.from("statuses").select("id, label, color, shape, sort_order, is_default, hidden").order("sort_order"),
     client.from("profiles").select("id, display_name, role, active"),
     client.from("price_tiers").select("user_id, boundaries"),
     client.from("customer_shares").select("customer_id, user_id, role, expires_at"),
+    client.from("customer_photos").select("id, customer_id, storage_path"),
   ]);
+  const photosByCustomer = {};
+  for (const photo of photoRows.data || []) {
+    (photosByCustomer[photo.customer_id] ||= []).push({ id: photo.id, storagePath: photo.storage_path });
+  }
   const personal = (tiers.data || []).find((item) => item.user_id === session.id);
   const orgTier = (tiers.data || []).find((item) => !item.user_id);
   cache = {
@@ -172,6 +177,7 @@ async function reloadRemote() {
         lng: item.lng,
         version: item.version,
         images: image ? [image.storage_path] : [],
+        photos: photosByCustomer[item.id] || [],
       };
     }),
   };
@@ -189,7 +195,43 @@ function render() {
   if (tab === "customers") renderCustomers();
   else if (tab === "statuses") renderStatuses();
   else if (tab === "tiers") renderTiers();
+  else if (tab === "org") renderOrg();
   else renderCsv();
+}
+
+let orgMessage = "";
+
+async function renderOrg() {
+  if (!hasRemote) {
+    app.innerHTML = `<section class="card"><h2>会社</h2><p>サンプルモードでは会社の招待はできません。</p></section>`;
+    return;
+  }
+  if (session.role !== "admin") {
+    app.innerHTML = `<section class="card"><h2>会社</h2><p>会社への招待は管理者だけができます。顧客の共有は顧客詳細から行えます。</p></section>`;
+    return;
+  }
+  const { data, error } = await client.from("org_invitations").select("id, email, role, expires_at, accepted_at, created_at").order("created_at", { ascending: false });
+  const rows = error ? [] : (data || []);
+  app.innerHTML = `
+    <section class="card">
+      <h2>会社への招待</h2>
+      <p class="muted">招待したメールアドレスでアプリから登録すると、この会社の担当者になります。会社名や org_id を自分で指定しても、他の会社には入れません。</p>
+      <label>メールアドレス<input id="org-email" type="email" /></label>
+      <div class="actions"><button class="primary" id="org-invite">招待する</button></div>
+      <p id="org-error" class="error">${esc(error ? "招待一覧を読めません。マイグレーションを適用してください。" : orgMessage)}</p>
+      <ul>${rows.map((item) => `<li>${esc(item.email)}（${item.accepted_at ? "参加済み" : "未参加"}）</li>`).join("") || "<li>招待はありません</li>"}</ul>
+    </section>`;
+  $("org-invite").addEventListener("click", async () => {
+    const email = $("org-email").value.trim().toLowerCase();
+    const { error: insertError } = await client.from("org_invitations").insert({
+      org_id: session.orgId,
+      email,
+      role: "member",
+      invited_by: session.id,
+    });
+    orgMessage = insertError ? "招待できませんでした。管理者だけが、未参加のメールを招待できます。" : "招待しました。相手はそのメールアドレスでアプリから登録してください。";
+    renderOrg();
+  });
 }
 
 function renderCustomers() {
@@ -267,6 +309,11 @@ function showDetail(id) {
     ${session.role === "admin" ? `<label>担当<select id="f-owner">${cache.members.filter((member) => member.active !== false).map((member) => `<option value="${esc(member.id)}" ${member.id === customer.owner_id ? "selected" : ""}>${esc(member.name)}</option>`).join("")}</select></label>` : `<p>担当: ${esc(memberById(customer.owner_id)?.name || "")}</p>`}
     <div class="actions"><button class="primary" id="save">保存</button></div>
     <p id="detail-error" class="error"></p>
+    <h3>写真</h3>
+    <div id="photo-list" class="actions"></div>
+    <label>写真を追加（店舗・名刺・契約書など。カメラでも選べます）
+      <input id="photo-file" type="file" accept="image/*" capture="environment" multiple />
+    </label>
     <h3>契約書画像</h3>
     <div id="images"></div>
     <label>画像を追加（JPEG / PNG / PDF、10MBまで）<input id="file" type="file" accept="image/jpeg,image/png,application/pdf" /></label>
@@ -278,6 +325,8 @@ function showDetail(id) {
       <button id="invite">招待</button>
     </div>`;
   renderImages(customer);
+  renderCustomerPhotos(customer);
+  $("photo-file").addEventListener("change", (event) => addCustomerPhotos(customer, [...event.target.files]));
   $("save").addEventListener("click", () => saveDetail(customer));
   $("file").addEventListener("change", (event) => uploadImage(customer, event.target.files[0]));
   $("detail").querySelectorAll("[data-revoke]").forEach((button) => button.addEventListener("click", () => revoke(customer.id, button.dataset.revoke)));
@@ -335,6 +384,119 @@ async function saveDetail(customer) {
   }
   await reloadRemote();
   render();
+}
+
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("blob")), "image/jpeg", 0.7);
+      };
+      image.onerror = () => reject(new Error("image"));
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function renderCustomerPhotos(customer) {
+  const box = $("photo-list");
+  if (!box) return;
+  box.innerHTML = "";
+  const photos = customer.photos || [];
+  if (!photos.length) {
+    box.innerHTML = `<p class="muted">写真はまだありません。</p>`;
+    return;
+  }
+  for (const photo of photos) {
+    const card = document.createElement("div");
+    card.className = "photo-card";
+    const img = document.createElement("img");
+    img.alt = "顧客の写真";
+    if (photo.dataUrl) {
+      img.src = photo.dataUrl;
+    } else if (hasRemote && photo.storagePath) {
+      const { data } = await client.storage.from("customer-photos").createSignedUrl(photo.storagePath, 60);
+      if (data?.signedUrl) img.src = data.signedUrl;
+    }
+    img.addEventListener("click", () => {
+      if (img.src) window.open(img.src, "_blank", "noopener");
+    });
+    const button = document.createElement("button");
+    button.textContent = "削除";
+    button.addEventListener("click", () => deleteCustomerPhoto(customer, photo));
+    card.append(img, button);
+    box.append(card);
+  }
+}
+
+async function addCustomerPhotos(customer, files) {
+  if (!files.length) return;
+  try {
+    if (!hasRemote) {
+      const data = loadDemo();
+      const target = data.customers.find((item) => item.id === customer.id);
+      target.photos = target.photos || [];
+      for (const file of files) {
+        const blob = await compressImageFile(file);
+        const dataUrl = await blobToDataUrl(blob);
+        target.photos.push({ id: crypto.randomUUID(), dataUrl });
+      }
+      saveDemo(data);
+      cache = data;
+      showDetail(customer.id);
+      return;
+    }
+    for (const file of files) {
+      const blob = await compressImageFile(file);
+      const photoId = crypto.randomUUID();
+      const path = `${session.orgId}/${customer.id}/${photoId}.jpg`;
+      const { error } = await client.storage.from("customer-photos").upload(path, blob, { contentType: "image/jpeg", upsert: false });
+      if (error) throw error;
+      const { error: rowError } = await client.from("customer_photos").insert({ id: photoId, customer_id: customer.id, storage_path: path });
+      if (rowError) throw rowError;
+    }
+    await reloadRemote();
+    render();
+    showDetail(customer.id);
+  } catch (error) {
+    const message = $("detail-error");
+    if (message) message.textContent = "写真を保存できませんでした";
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function deleteCustomerPhoto(customer, photo) {
+  if (!window.confirm("この写真を削除しますか")) return;
+  if (!hasRemote) {
+    const data = loadDemo();
+    const target = data.customers.find((item) => item.id === customer.id);
+    target.photos = (target.photos || []).filter((item) => item.id !== photo.id);
+    saveDemo(data);
+    cache = data;
+    showDetail(customer.id);
+    return;
+  }
+  if (photo.storagePath) await client.storage.from("customer-photos").remove([photo.storagePath]);
+  await client.from("customer_photos").delete().eq("id", photo.id);
+  await reloadRemote();
+  render();
+  showDetail(customer.id);
 }
 
 async function renderImages(customer) {

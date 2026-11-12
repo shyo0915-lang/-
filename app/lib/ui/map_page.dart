@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../logic/validators.dart';
 import '../models/models.dart';
+import '../services/maps_loader.dart';
 import '../state/app_state.dart';
 import 'conflict_page.dart';
+import 'customer_photos.dart';
 import 'edit_form.dart';
 import 'fallback_map.dart';
 import 'format.dart';
@@ -29,14 +33,20 @@ class _MapPageState extends State<MapPage> {
   final _search = TextEditingController();
   final _fallbackKey = GlobalKey<FallbackMapState>();
   final _googleKey = GlobalKey<SalesGoogleMapState>();
+  bool _mapsBroken = false;
 
   AppState get app => widget.state;
+  bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
 
   @override
   void initState() {
     super.initState();
     app.confirm = _confirm;
     app.choose = _choose;
+    app.addListener(_onAppChanged);
+    if (app.config.hasMaps) {
+      _watchMaps();
+    }
     Connectivity().onConnectivityChanged.listen((results) {
       final online = results.any((result) => result != ConnectivityResult.none);
       app.repo.setConnectivity(online);
@@ -52,8 +62,27 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    app.removeListener(_onAppChanged);
     _search.dispose();
     super.dispose();
+  }
+
+  String? _pannedId;
+
+  void _onAppChanged() {
+    if (!mounted) return;
+    final customer = app.selected;
+    if (customer == null || !customer.hasLocation || app.sheet == SheetLevel.closed) {
+      _pannedId = null;
+      return;
+    }
+    if (_pannedId == customer.id) return;
+    _pannedId = customer.id;
+    if (_showGoogle) {
+      _googleKey.currentState?.moveTo(customer.lat!, customer.lng!);
+    } else {
+      _fallbackKey.currentState?.focus(customer.lat!, customer.lng!);
+    }
   }
 
   @override
@@ -70,7 +99,7 @@ class _MapPageState extends State<MapPage> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: app.config.hasMaps
+            child: _showGoogle
                 ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin)
                 : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin),
           ),
@@ -267,28 +296,38 @@ class _MapPageState extends State<MapPage> {
             Text(customer.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
             if (app.sheet != SheetLevel.peak) ...[
               const SizedBox(height: 4),
-              Text(customer.address, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-              GestureDetector(
-                onLongPress: () {
-                  Clipboard.setData(ClipboardData(text: customer.phone));
-                  app.showToast('電話番号をコピーしました');
-                },
-                child: Text(customer.phone, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-              ),
-              if (customer.memo.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(memoExcerpt(customer.memo), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(customer.address, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
+                      GestureDetector(
+                        onLongPress: () {
+                          Clipboard.setData(ClipboardData(text: customer.phone));
+                          app.showToast('電話番号をコピーしました');
+                        },
+                        child: Text(customer.phone, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
+                      ),
+                      if (customer.memo.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(memoExcerpt(customer.memo), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+                        ),
+                      const SizedBox(height: 8),
+                      if (customer.photos.isNotEmpty) CustomerPhotoStrip(state: app, customer: customer, compact: true),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _metric('契約日', formatIso(customer.contractDate)),
+                          const SizedBox(width: 20),
+                          _metric('単価（1回）', formatYen(customer.unitPrice)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  _metric('契約日', formatIso(customer.contractDate)),
-                  const SizedBox(width: 20),
-                  _metric('単価（1回）', formatYen(customer.unitPrice)),
-                ],
               ),
-              const Spacer(),
               Row(
                 children: [
                   Expanded(child: SizedBox(height: 56, child: FilledButton(onPressed: () => _call(customer.phone), child: const Text('電話する', style: TextStyle(fontSize: 18))))),
@@ -350,6 +389,7 @@ class _MapPageState extends State<MapPage> {
             onSuggest: app.suggest,
             updatedLabel: updated,
             onSave: (draft) => app.saveExisting(customer, draft),
+            header: CustomerPhotoStrip(state: app, customer: customer, allowEdit: true),
           ),
         ),
       ],
@@ -367,9 +407,30 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _nav(Customer customer) async {
-    final destination = customer.hasLocation ? '${customer.lat},${customer.lng}' : Uri.encodeComponent(customer.address);
-    final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$destination');
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final destination = customer.hasLocation ? '${customer.lat},${customer.lng}' : customer.address;
+    final apple = Uri.https('maps.apple.com', '/', {'daddr': destination, 'dirflg': 'd'});
+    final google = Uri.https('www.google.com', '/maps/dir/', {'api': '1', 'destination': destination, 'travelmode': 'driving'});
+    final choice = await showModalBottomSheet<Uri>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('ルート案内', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              SizedBox(height: 56, child: FilledButton(onPressed: () => Navigator.pop(context, apple), child: const Text('Appleマップで案内', style: TextStyle(fontSize: 18)))),
+              const SizedBox(height: 8),
+              SizedBox(height: 56, child: OutlinedButton(onPressed: () => Navigator.pop(context, google), child: const Text('Googleマップで案内', style: TextStyle(fontSize: 18)))),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await launchUrl(choice, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _myLocation() async {
@@ -381,7 +442,7 @@ class _MapPageState extends State<MapPage> {
         return;
       }
       final position = await Geolocator.getCurrentPosition();
-      if (app.config.hasMaps) {
+      if (_showGoogle) {
         await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
       } else {
         _fallbackKey.currentState?.focus(position.latitude, position.longitude);
@@ -399,6 +460,22 @@ class _MapPageState extends State<MapPage> {
     }
     app.moveSelectedPin(lat, lng);
     await app.persistSelectedPin();
+  }
+
+  void _watchMaps() {
+    var ticks = 0;
+    Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      ticks += 1;
+      if (!mounted || ticks > 20 || _mapsBroken) {
+        timer.cancel();
+        return;
+      }
+      if (!mapsErrorOnPage()) return;
+      timer.cancel();
+      setState(() => _mapsBroken = true);
+      final detail = googleMapsError;
+      app.showToast(detail == null || detail.isEmpty ? 'Googleマップを表示できないため、簡易地図に切り替えました' : detail);
+    });
   }
 
   Future<bool> _confirm(String message) async {

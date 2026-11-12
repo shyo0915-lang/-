@@ -3,12 +3,49 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import 'geocode_js.dart';
 
 class GeoHit {
   const GeoHit(this.lat, this.lng, this.formattedAddress);
   final double lat;
   final double lng;
   final String formattedAddress;
+}
+
+/// 国土地理院の住所検索。`coordinates` は [経度, 緯度]。
+List<GeoHit> parseGsiAddressSearch(String body, String fallbackAddress) {
+  final decoded = jsonDecode(body);
+  if (decoded is! List) return const [];
+  final hits = <GeoHit>[];
+  for (final item in decoded.take(5)) {
+    if (item is! Map) continue;
+    final geometry = item['geometry'];
+    if (geometry is! Map) continue;
+    final coordinates = geometry['coordinates'];
+    if (coordinates is! List || coordinates.length < 2) continue;
+    final lng = coordinates[0];
+    final lat = coordinates[1];
+    if (lng is! num || lat is! num) continue;
+    final properties = item['properties'];
+    final title = properties is Map ? properties['title'] : null;
+    final label = title is String && title.trim().isNotEmpty ? title.trim() : fallbackAddress;
+    hits.add(GeoHit(lat.toDouble(), lng.toDouble(), label));
+  }
+  return hits;
+}
+
+/// 国土地理院が参照している東京大学CSISシンプルジオコーディング。
+List<GeoHit> parseCsisGeocode(String body, String fallbackAddress) {
+  final hits = <GeoHit>[];
+  for (final match in RegExp(r'<candidate>([\s\S]*?)</candidate>').allMatches(body).take(5)) {
+    final block = match.group(1) ?? '';
+    final lng = double.tryParse(RegExp(r'<longitude>([^<]+)</longitude>').firstMatch(block)?.group(1)?.trim() ?? '');
+    final lat = double.tryParse(RegExp(r'<latitude>([^<]+)</latitude>').firstMatch(block)?.group(1)?.trim() ?? '');
+    if (lat == null || lng == null) continue;
+    final raw = RegExp(r'<address>([^<]*)</address>').firstMatch(block)?.group(1)?.trim() ?? '';
+    hits.add(GeoHit(lat, lng, raw.isEmpty ? fallbackAddress : raw.replaceAll('/', '')));
+  }
+  return hits;
 }
 
 abstract class Geocoder {
@@ -27,6 +64,16 @@ class RoutingGeocoder implements Geocoder {
   Future<List<GeoHit>> geocode(String address) async {
     final query = address.trim();
     if (query.isEmpty) return const [];
+    final fromGsi = await _geocodeViaGsi(query);
+    if (fromGsi != null) return fromGsi;
+    final fromCsis = await _geocodeViaCsis(query);
+    if (fromCsis.isNotEmpty) return fromCsis;
+    try {
+      final browserHits = await geocodeWithMapsJs(query);
+      if (browserHits.isNotEmpty) {
+        return browserHits.map((hit) => GeoHit(hit.lat, hit.lng, hit.formattedAddress)).toList();
+      }
+    } catch (_) {}
     if (config.hasSupabase) {
       final fromEdge = await _geocodeViaEdge(query);
       if (fromEdge != null) return fromEdge;
@@ -48,6 +95,30 @@ class RoutingGeocoder implements Geocoder {
         final location = (row['geometry'] as Map)['location'] as Map;
         return GeoHit((location['lat'] as num).toDouble(), (location['lng'] as num).toDouble(), row['formatted_address'] as String? ?? query);
       }).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 成功時は候補（0件を含む）。通信失敗やHTMLエラーのときは null。
+  Future<List<GeoHit>?> _geocodeViaGsi(String address) async {
+    final uri = Uri.https('msearch.gsi.go.jp', '/address-search/AddressSearch', {'q': address});
+    try {
+      final response = await _client.get(uri).timeout(const Duration(seconds: 8));
+      final body = response.body.trimLeft();
+      if (response.statusCode != 200 || !body.startsWith('[')) return null;
+      return parseGsiAddressSearch(body, address);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<GeoHit>> _geocodeViaCsis(String address) async {
+    final uri = Uri.https('geocode.csis.u-tokyo.ac.jp', '/cgi-bin/simple_geocode.cgi', {'charset': 'UTF8', 'addr': address});
+    try {
+      final response = await _client.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return const [];
+      return parseCsisGeocode(response.body, address);
     } catch (_) {
       return const [];
     }

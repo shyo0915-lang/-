@@ -38,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 24),
             const Text('顧客マップ', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
-            const Text('社内の顧客台帳にログインします。最初の登録者がその会社の管理者になります。', style: TextStyle(fontSize: 16, height: 1.4)),
+            const Text('社内の顧客台帳にログインします。新しい会社名で登録すると、その会社の管理者になります。招待されたメールアドレスなら、その会社に入ります。', style: TextStyle(fontSize: 16, height: 1.4)),
             const SizedBox(height: 24),
             TextField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'メールアドレス'), style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 12),

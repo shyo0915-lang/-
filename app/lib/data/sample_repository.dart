@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import '../logic/price_tiers.dart';
 import '../logic/status_rules.dart';
 import '../models/models.dart';
+import '../services/image_vault.dart';
 import 'local_database.dart';
 import 'repository.dart';
 
@@ -440,5 +442,20 @@ class SampleRepository implements AppRepository {
     final index = _customers.indexWhere((customer) => customer.id == customerId);
     if (index >= 0) _customers[index] = _customers[index].copyWith(imageLocalPath: path);
     await _persist();
+  }
+
+  @override
+  Future<void> saveCustomerPhotos(Customer customer) async {
+    final index = _customers.indexWhere((item) => item.id == customer.id);
+    if (index < 0) return;
+    _customers[index] = _customers[index].copyWith(photos: customer.photos);
+    await _persist();
+  }
+
+  @override
+  Future<Uint8List?> loadPhoto(CustomerPhoto photo) async {
+    final path = photo.localPath;
+    if (path == null || path.isEmpty) return null;
+    return ImageVault().read(path);
   }
 }

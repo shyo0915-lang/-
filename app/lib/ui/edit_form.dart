@@ -17,6 +17,7 @@ class CustomerEditForm extends StatefulWidget {
     this.updatedLabel,
     this.warning,
     this.embedded = false,
+    this.header,
   });
 
   final CustomerDraft initial;
@@ -27,6 +28,7 @@ class CustomerEditForm extends StatefulWidget {
   final String? updatedLabel;
   final String? warning;
   final bool embedded;
+  final Widget? header;
 
   @override
   State<CustomerEditForm> createState() => _CustomerEditFormState();
@@ -93,6 +95,7 @@ class _CustomerEditFormState extends State<CustomerEditForm> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             children: [
+              if (widget.header != null) widget.header!,
               _field(
                 '顧客名',
                 TextField(

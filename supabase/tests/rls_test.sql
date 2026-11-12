@@ -6,9 +6,19 @@ begin;
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-4111-8111-111111111111', 'admin@example.com',
    '{"display_name":"管理者","org_name":"テスト商事"}'::jsonb);
+
+insert into public.org_invitations (org_id, email, role, invited_by)
+select org_id, 'a@example.com', 'member', id
+from public.profiles
+where id = '11111111-1111-4111-8111-111111111111';
+insert into public.org_invitations (org_id, email, role, invited_by)
+select org_id, 'b@example.com', 'member', id
+from public.profiles
+where id = '11111111-1111-4111-8111-111111111111';
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('22222222-2222-4222-8222-222222222222', 'a@example.com',
-   '{"display_name":"担当A","org_name":"テスト商事"}'::jsonb);
+   '{"display_name":"担当A","org_id":"11111111-1111-4111-8111-111111111111","org_name":"テスト商事"}'::jsonb);
 insert into auth.users (id, email, raw_user_meta_data) values
   ('33333333-3333-4333-8333-333333333333', 'b@example.com',
    '{"display_name":"担当B","org_name":"テスト商事"}'::jsonb);
@@ -32,6 +42,31 @@ begin
   end if;
   if public.customer_id_from_path('bad') is not null then
     raise exception 'customer_id_from_path should be null';
+  end if;
+end $$;
+
+-- metadata の org_id / 既存の会社名では入れない。
+insert into auth.users (id, email, raw_user_meta_data)
+select
+  '44444444-4444-4444-8444-444444444444',
+  'intruder@example.com',
+  jsonb_build_object('display_name', '侵入', 'org_id', p.org_id::text, 'org_name', 'テスト商事')
+from public.profiles p
+where p.id = '11111111-1111-4111-8111-111111111111';
+
+do $$
+declare
+  v_admin_org uuid;
+  v_intruder_org uuid;
+  v_role text;
+begin
+  select org_id into v_admin_org from public.profiles where id = '11111111-1111-4111-8111-111111111111';
+  select org_id, role into v_intruder_org, v_role from public.profiles where id = '44444444-4444-4444-8444-444444444444';
+  if v_intruder_org = v_admin_org then
+    raise exception 'metadata must not join an existing org';
+  end if;
+  if v_role <> 'admin' then
+    raise exception 'a new org owner should be admin, got %', v_role;
   end if;
 end $$;
 
@@ -357,6 +392,46 @@ begin
   if exists (select 1 from public.customers where id = 'd0000000-0000-4000-8000-00000000000b') then
     raise exception 'other reps should not see an archived customer';
   end if;
+end $$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+set role authenticated;
+
+insert into public.customer_photos (id, customer_id, storage_path)
+values (
+  'e0000000-0000-4000-8000-000000000001',
+  'd0000000-0000-4000-8000-00000000000c',
+  '11111111-1111-4111-8111-111111111111/d0000000-0000-4000-8000-00000000000c/e0000000-0000-4000-8000-000000000001.jpg'
+);
+
+reset role;
+select set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);
+set role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.customer_photos
+    where id = 'e0000000-0000-4000-8000-000000000001'
+  ) then
+    raise exception 'B should not see a photo of a customer they cannot view';
+  end if;
+  begin
+    insert into public.customer_photos (customer_id, storage_path)
+    values (
+      'd0000000-0000-4000-8000-00000000000c',
+      'x/d0000000-0000-4000-8000-00000000000c/nope.jpg'
+    );
+    raise exception 'B must not attach a photo';
+  exception
+    when insufficient_privilege then
+      null;
+    when others then
+      if sqlerrm not like '%row-level security%' then
+        raise;
+      end if;
+  end;
 end $$;
 
 reset role;

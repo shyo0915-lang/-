@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../logic/ocr_flow.dart';
 import '../logic/ocr_parser.dart';
 import '../logic/validators.dart';
+import '../models/models.dart';
 import '../services/cloud_ocr.dart';
 import '../services/image_vault.dart';
 import '../services/mlkit_text.dart';
@@ -311,7 +312,10 @@ class _OcrPageState extends State<OcrPage> {
     );
     final hits = await app.geocoder.geocode(draft.address);
     if (hits.length == 1) {
-      draft = draft.copyWith(lat: hits.single.lat, lng: hits.single.lng, locationSource: 'geocoded');
+      final use = await app.confirm?.call('この位置にピンを置きます\n${hits.single.formattedAddress}') ?? true;
+      if (use) {
+        draft = draft.copyWith(lat: hits.single.lat, lng: hits.single.lng, locationSource: 'geocoded');
+      }
     } else if (hits.length > 1 && mounted) {
       final index = await app.choose?.call('住所の候補', hits.map((hit) => hit.formattedAddress).toList());
       if (index != null) {
@@ -334,7 +338,18 @@ class _OcrPageState extends State<OcrPage> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (created != null) {
-      if (_imagePath != null) await app.repo.saveLocalImage(created.id, _imagePath!);
+      if (_imagePath != null) {
+        await app.repo.saveLocalImage(created.id, _imagePath!);
+        await app.repo.saveCustomerPhotos(
+          created.copyWith(
+            photos: [
+              ...created.photos,
+              CustomerPhoto(id: app.newId(), localPath: _imagePath, pending: !app.repo.sampleMode),
+            ],
+          ),
+        );
+        await app.refresh();
+      }
       if (mounted) Navigator.of(context).pop();
     }
   }
