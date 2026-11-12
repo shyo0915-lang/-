@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../logic/validators.dart';
 import '../models/models.dart';
+import '../services/maps_loader.dart';
 import '../state/app_state.dart';
 import 'conflict_page.dart';
 import 'customer_photos.dart';
@@ -30,14 +33,19 @@ class _MapPageState extends State<MapPage> {
   final _search = TextEditingController();
   final _fallbackKey = GlobalKey<FallbackMapState>();
   final _googleKey = GlobalKey<SalesGoogleMapState>();
+  bool _mapsBroken = false;
 
   AppState get app => widget.state;
+  bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
 
   @override
   void initState() {
     super.initState();
     app.confirm = _confirm;
     app.choose = _choose;
+    if (app.config.hasMaps) {
+      _watchMaps();
+    }
     Connectivity().onConnectivityChanged.listen((results) {
       final online = results.any((result) => result != ConnectivityResult.none);
       app.repo.setConnectivity(online);
@@ -71,7 +79,7 @@ class _MapPageState extends State<MapPage> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: app.config.hasMaps
+            child: _showGoogle
                 ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin)
                 : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin),
           ),
@@ -393,7 +401,7 @@ class _MapPageState extends State<MapPage> {
         return;
       }
       final position = await Geolocator.getCurrentPosition();
-      if (app.config.hasMaps) {
+      if (_showGoogle) {
         await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
       } else {
         _fallbackKey.currentState?.focus(position.latitude, position.longitude);
@@ -411,6 +419,22 @@ class _MapPageState extends State<MapPage> {
     }
     app.moveSelectedPin(lat, lng);
     await app.persistSelectedPin();
+  }
+
+  void _watchMaps() {
+    var ticks = 0;
+    Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      ticks += 1;
+      if (!mounted || ticks > 20 || _mapsBroken) {
+        timer.cancel();
+        return;
+      }
+      if (!mapsErrorOnPage()) return;
+      timer.cancel();
+      setState(() => _mapsBroken = true);
+      final detail = googleMapsError;
+      app.showToast(detail == null || detail.isEmpty ? 'Googleマップを表示できないため、簡易地図に切り替えました' : detail);
+    });
   }
 
   Future<bool> _confirm(String message) async {

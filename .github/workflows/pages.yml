@@ -42,7 +42,10 @@ jobs:
           flutter pub get
           URL="${SUPABASE_URL:-${VAR_SUPABASE_URL:-}}"
           KEY="${SUPABASE_ANON_KEY:-${VAR_SUPABASE_ANON_KEY:-}}"
-          MAPS="${MAPS_API_KEY:-${VAR_MAPS_API_KEY:-}}"
+          # Referrer-restricted Maps JavaScript API key for https://shyo0915-lang.github.io/*
+          # Secrets or Variables named MAPS_API_KEY override this public browser key.
+          DEFAULT_BROWSER_MAPS_KEY="AIzaSyBYEvFFtt1SLGMioFDDsBJ2HLu1d18tAX8"
+          MAPS="${MAPS_API_KEY:-${VAR_MAPS_API_KEY:-$DEFAULT_BROWSER_MAPS_KEY}}"
           args=(--release --pwa-strategy=offline-first --base-href "${{ steps.href.outputs.base }}")
           if [ -n "$URL" ] && [ -n "$KEY" ]; then
             args+=(--dart-define=SUPABASE_URL="$URL" --dart-define=SUPABASE_ANON_KEY="$KEY")
