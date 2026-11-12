@@ -29,11 +29,13 @@ class MapPage extends StatefulWidget {
   State<MapPage> createState() => _MapPageState();
 }
 
-class _MapPageState extends State<MapPage> {
+class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   final _search = TextEditingController();
   final _fallbackKey = GlobalKey<FallbackMapState>();
   final _googleKey = GlobalKey<SalesGoogleMapState>();
   bool _mapsBroken = false;
+  StreamSubscription<Position>? _fixSub;
+  Position? _here;
 
   AppState get app => widget.state;
   bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
@@ -41,9 +43,11 @@ class _MapPageState extends State<MapPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     app.confirm = _confirm;
     app.choose = _choose;
     app.addListener(_onAppChanged);
+    _startIfGranted();
     if (app.config.hasMaps) {
       _watchMaps();
     }
@@ -62,9 +66,60 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopWatch();
     app.removeListener(_onAppChanged);
     _search.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startIfGranted();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden || state == AppLifecycleState.detached) {
+      _stopWatch();
+    }
+  }
+
+  void _stopWatch() {
+    _fixSub?.cancel();
+    _fixSub = null;
+  }
+
+  Future<void> _startIfGranted() async {
+    final permission = await Geolocator.checkPermission();
+    if (!mounted) return;
+    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+      await _watch(moveCamera: false);
+    }
+  }
+
+  LocationSettings get _locationSettings => kIsWeb
+      ? WebSettings(accuracy: LocationAccuracy.high, distanceFilter: 8)
+      : const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 8);
+
+  Future<void> _watch({required bool moveCamera}) async {
+    _fixSub ??= Geolocator.getPositionStream(locationSettings: _locationSettings).listen(
+      (position) {
+        if (!mounted) return;
+        setState(() => _here = position);
+      },
+      onError: (_) {
+        _stopWatch();
+        if (mounted) app.showToast('現在地を取得できませんでした');
+      },
+    );
+    if (!moveCamera) return;
+    final position = await Geolocator.getCurrentPosition();
+    if (!mounted) return;
+    setState(() => _here = position);
+    if (_showGoogle) {
+      await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
+    } else {
+      _fallbackKey.currentState?.focus(position.latitude, position.longitude);
+    }
+    app.showToast('現在地に移動しました');
   }
 
   String? _pannedId;
@@ -100,8 +155,8 @@ class _MapPageState extends State<MapPage> {
         children: [
           Positioned.fill(
             child: _showGoogle
-                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin)
-                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin),
+                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here)
+                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin, here: _here),
           ),
           if (!app.repo.isOnline)
             const Positioned(
@@ -441,13 +496,7 @@ class _MapPageState extends State<MapPage> {
         app.showToast('位置情報の権限がありません');
         return;
       }
-      final position = await Geolocator.getCurrentPosition();
-      if (_showGoogle) {
-        await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
-      } else {
-        _fallbackKey.currentState?.focus(position.latitude, position.longitude);
-      }
-      app.showToast('現在地に移動しました');
+      await _watch(moveCamera: true);
     } catch (_) {
       app.showToast('現在地を取得できませんでした');
     }

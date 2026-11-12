@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../logic/cluster.dart';
+import '../logic/geo.dart';
 import '../logic/price_tiers.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
@@ -8,10 +10,11 @@ import 'format.dart';
 import 'pin_painter.dart';
 
 class FallbackMap extends StatefulWidget {
-  const FallbackMap({super.key, required this.state, required this.onLongPress});
+  const FallbackMap({super.key, required this.state, required this.onLongPress, this.here});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
+  final Position? here;
 
   @override
   State<FallbackMap> createState() => FallbackMapState();
@@ -82,6 +85,7 @@ class FallbackMapState extends State<FallbackMap> {
                   )
                 else
                   _pin(byId[cluster.ids.single]!, cluster.x, cluster.y),
+              if (widget.here != null) _hereDot(widget.here!, size),
             ],
           ),
         );
@@ -122,9 +126,43 @@ class FallbackMapState extends State<FallbackMap> {
     );
   }
 
+  Widget _hereDot(Position here, Size size) {
+    final point = _project(here.latitude, here.longitude, size);
+    final accuracy = here.accuracy.isFinite && here.accuracy > 0 ? here.accuracy : 30.0;
+    final radius = accuracyRadiusPixels(meters: accuracy, pixelsPerDegree: scale).clamp(12.0, 240.0);
+    return Positioned(
+      left: point.dx - radius,
+      top: point.dy - radius,
+      child: GestureDetector(
+        onTap: () {},
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: CustomPaint(painter: _HereDotPainter(radius)),
+        ),
+      ),
+    );
+  }
+
   Offset _project(double lat, double lng, Size size) {
     return Offset((lng - centerLng) * scale + size.width / 2, (centerLat - lat) * scale + size.height / 2);
   }
+}
+
+class _HereDotPainter extends CustomPainter {
+  const _HereDotPainter(this.radius);
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    canvas.drawCircle(center, radius, Paint()..color = const Color(0x334285F4));
+    canvas.drawCircle(center, 9, Paint()..color = Colors.white);
+    canvas.drawCircle(center, 6, Paint()..color = const Color(0xFF1A73E8));
+  }
+
+  @override
+  bool shouldRepaint(covariant _HereDotPainter oldDelegate) => oldDelegate.radius != radius;
 }
 
 class _StreetPainter extends CustomPainter {
