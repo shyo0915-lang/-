@@ -43,6 +43,7 @@ class _MapPageState extends State<MapPage> {
     super.initState();
     app.confirm = _confirm;
     app.choose = _choose;
+    app.addListener(_onAppChanged);
     if (app.config.hasMaps) {
       _watchMaps();
     }
@@ -61,8 +62,27 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    app.removeListener(_onAppChanged);
     _search.dispose();
     super.dispose();
+  }
+
+  String? _pannedId;
+
+  void _onAppChanged() {
+    if (!mounted) return;
+    final customer = app.selected;
+    if (customer == null || !customer.hasLocation || app.sheet == SheetLevel.closed) {
+      _pannedId = null;
+      return;
+    }
+    if (_pannedId == customer.id) return;
+    _pannedId = customer.id;
+    if (_showGoogle) {
+      _googleKey.currentState?.moveTo(customer.lat!, customer.lng!);
+    } else {
+      _fallbackKey.currentState?.focus(customer.lat!, customer.lng!);
+    }
   }
 
   @override
@@ -387,9 +407,30 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _nav(Customer customer) async {
-    final destination = customer.hasLocation ? '${customer.lat},${customer.lng}' : Uri.encodeComponent(customer.address);
-    final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$destination');
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final destination = customer.hasLocation ? '${customer.lat},${customer.lng}' : customer.address;
+    final apple = Uri.https('maps.apple.com', '/', {'daddr': destination, 'dirflg': 'd'});
+    final google = Uri.https('www.google.com', '/maps/dir/', {'api': '1', 'destination': destination, 'travelmode': 'driving'});
+    final choice = await showModalBottomSheet<Uri>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('ルート案内', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              SizedBox(height: 56, child: FilledButton(onPressed: () => Navigator.pop(context, apple), child: const Text('Appleマップで案内', style: TextStyle(fontSize: 18)))),
+              const SizedBox(height: 8),
+              SizedBox(height: 56, child: OutlinedButton(onPressed: () => Navigator.pop(context, google), child: const Text('Googleマップで案内', style: TextStyle(fontSize: 18)))),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await launchUrl(choice, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _myLocation() async {

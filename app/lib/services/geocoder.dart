@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import 'geocode_js.dart';
 
 class GeoHit {
   const GeoHit(this.lat, this.lng, this.formattedAddress);
@@ -27,6 +28,12 @@ class RoutingGeocoder implements Geocoder {
   Future<List<GeoHit>> geocode(String address) async {
     final query = address.trim();
     if (query.isEmpty) return const [];
+    try {
+      final browserHits = await geocodeWithMapsJs(query);
+      if (browserHits.isNotEmpty) {
+        return browserHits.map((hit) => GeoHit(hit.lat, hit.lng, hit.formattedAddress)).toList();
+      }
+    } catch (_) {}
     if (config.hasSupabase) {
       final fromEdge = await _geocodeViaEdge(query);
       if (fromEdge != null) return fromEdge;
