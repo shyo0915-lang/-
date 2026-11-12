@@ -1,0 +1,97 @@
+name: pages
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/field-sales-mvp-a81b
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Base href
+        id: href
+        run: echo "base=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
+      - name: Build web app
+        working-directory: app
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          VAR_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VAR_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          VAR_MAPS_API_KEY: ${{ vars.MAPS_API_KEY }}
+        run: |
+          set -euo pipefail
+          flutter pub get
+          URL="${SUPABASE_URL:-${VAR_SUPABASE_URL:-}}"
+          KEY="${SUPABASE_ANON_KEY:-${VAR_SUPABASE_ANON_KEY:-}}"
+          MAPS="${MAPS_API_KEY:-${VAR_MAPS_API_KEY:-}}"
+          args=(--release --pwa-strategy=offline-first --base-href "${{ steps.href.outputs.base }}")
+          if [ -n "$URL" ] && [ -n "$KEY" ]; then
+            args+=(--dart-define=SUPABASE_URL="$URL" --dart-define=SUPABASE_ANON_KEY="$KEY")
+          fi
+          if [ -n "$MAPS" ]; then
+            args+=(--dart-define=MAPS_API_KEY="$MAPS")
+          fi
+          flutter build web "${args[@]}"
+      - name: Add admin and config
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VAR_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VAR_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/build/web/admin
+          cp -a web-admin/index.html web-admin/app.js web-admin/styles.css web-admin/config.example.js app/build/web/admin/
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          url = os.environ.get("SUPABASE_URL") or os.environ.get("VAR_SUPABASE_URL") or ""
+          key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("VAR_SUPABASE_ANON_KEY") or ""
+          Path("app/build/web/admin/config.js").write_text(
+              "window.APP_CONFIG = "
+              + json.dumps({"supabaseUrl": url, "supabaseAnonKey": key}, ensure_ascii=False)
+              + ";\n",
+              encoding="utf-8",
+          )
+          PY
+          touch app/build/web/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/web
+      - name: Publish gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: app/build/web
+          force_orphan: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

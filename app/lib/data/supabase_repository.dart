@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -252,7 +251,7 @@ class SupabaseAppRepository implements AppRepository {
       });
       return null;
     } catch (error) {
-      if (!_online || error is SocketException) {
+      if (!_online || _isOfflineError(error)) {
         await local.enqueue('invite', {
           'customerId': customerId,
           'userId': userId,
@@ -294,7 +293,8 @@ class SupabaseAppRepository implements AppRepository {
   Future<void> saveLocalImage(String customerId, String path) async {
     final customer = await local.customer(customerId);
     if (customer == null) return;
-    final bytes = await ImageVault().read(path) ?? await File(path).readAsBytes();
+    final bytes = await ImageVault().read(path);
+    if (bytes == null) return;
     await local.enqueue('upload_image', {
       'customerId': customerId,
       'contractId': customer.contractId,
@@ -716,6 +716,11 @@ Customer _customerFromPublic(Map<String, dynamic> json) {
   );
 }
 
+bool _isOfflineError(Object error) {
+  final text = error.toString();
+  return text.contains('SocketException') || text.contains('Failed host lookup') || text.contains('ClientException') || text.contains('XMLHttpRequest');
+}
+
 String _humanize(Object error) {
   final text = error.toString();
   if (text.contains('version_conflict')) return '他の端末の更新と競合しました';
@@ -726,6 +731,6 @@ String _humanize(Object error) {
   if (text.contains('archive_forbidden')) return 'アーカイブは担当者のみです';
   if (text.contains('Invalid login')) return 'メールアドレスかパスワードが違います';
   if (text.contains('row-level security') || text.contains('42501')) return 'この操作の権限がありません';
-  if (error is SocketException) return 'オフラインです。復帰後に同期します';
+  if (_isOfflineError(error)) return 'オフラインです。復帰後に同期します';
   return '保存できませんでした: $text';
 }

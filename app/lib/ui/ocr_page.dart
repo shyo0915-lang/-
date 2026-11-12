@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -73,7 +72,9 @@ class _OcrPageState extends State<OcrPage> {
           const Expanded(
             child: Center(
               child: Text(
-                '書類を枠に収めて撮影するか、写真を選んでください。\n書類の自動検出は次の版で対応します。',
+                kIsWeb
+                    ? 'iPhoneでは「撮影」か「写真を選ぶ」を押してください。\n読み取れないときは、次の画面で手入力できます。'
+                    : '書類を枠に収めて撮影するか、写真を選んでください。\n書類の自動検出は次の版で対応します。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white, fontSize: 17, height: 1.5),
               ),
@@ -256,7 +257,7 @@ class _OcrPageState extends State<OcrPage> {
     try {
       final file = await ImagePicker().pickImage(source: source, imageQuality: 80, maxWidth: 2000);
       if (file == null) return;
-      final bytes = await File(file.path).readAsBytes();
+      final bytes = await file.readAsBytes();
       if (bytes.length < 20 * 1024) {
         app.showToast('画像が小さすぎます。明るい場所で、書類を大きく撮ってください');
       }
@@ -266,7 +267,7 @@ class _OcrPageState extends State<OcrPage> {
         _proc = 0;
         _imagePath = stored;
       });
-      final text = await recognizeJapaneseText(file.path);
+      final text = await recognizeJapaneseText(bytes, path: file.path);
       if (!mounted) return;
       setState(() => _proc = 2);
       final online = app.repo.isOnline && app.config.hasSupabase;
@@ -280,10 +281,13 @@ class _OcrPageState extends State<OcrPage> {
             : null,
       );
       if (!mounted) return;
+      final manual = text.trim().isEmpty;
       setState(() {
         _proc = 4;
         _fields = result.fields;
-        _message = result.message;
+        _message = manual
+            ? '自動読み取りができませんでした。下の欄に手入力して、内容を確認してから保存してください。'
+            : result.message;
         _step = 'review';
       });
     } catch (error) {

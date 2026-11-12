@@ -8,19 +8,21 @@ import 'data/repository.dart';
 import 'data/sample_repository.dart';
 import 'data/supabase_repository.dart';
 import 'services/geocoder.dart';
+import 'services/maps_loader.dart';
 import 'state/app_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final config = AppConfig.fromEnvironment;
+  await prepareGoogleMaps(config.mapsApiKey);
+  final database = await LocalDatabase.open();
   final AppRepository repository;
   if (config.hasSupabase) {
     await Supabase.initialize(url: config.supabaseUrl, publishableKey: config.supabaseAnonKey);
-    final database = await LocalDatabase.open();
     final client = Supabase.instance.client;
     repository = SupabaseAppRepository(client, config, database);
   } else {
-    repository = SampleRepository();
+    repository = SampleRepository(storage: database);
   }
   await repository.init();
   final geocoder = RoutingGeocoder(
