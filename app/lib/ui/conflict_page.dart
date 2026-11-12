@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
+import 'back_button.dart';
 
 const _labels = {
   'name': '顧客名',
@@ -24,7 +25,7 @@ class ConflictPage extends StatelessWidget {
     return ListenableBuilder(
       listenable: state,
       builder: (context, _) => Scaffold(
-      appBar: AppBar(title: const Text('同期の競合')),
+      appBar: largeBackBar('同期の競合', () => Navigator.maybePop(context)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

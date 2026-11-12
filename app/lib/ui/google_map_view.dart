@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../logic/cluster.dart';
@@ -12,10 +13,11 @@ import 'format.dart';
 import 'pin_painter.dart';
 
 class SalesGoogleMap extends StatefulWidget {
-  const SalesGoogleMap({super.key, required this.state, required this.onLongPress});
+  const SalesGoogleMap({super.key, required this.state, required this.onLongPress, this.here});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
+  final Position? here;
 
   @override
   State<SalesGoogleMap> createState() => SalesGoogleMapState();
@@ -25,6 +27,22 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
   GoogleMapController? _controller;
   double _zoom = 13;
   final Map<String, BitmapDescriptor> _icons = {};
+  BitmapDescriptor? _hereIcon;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHereIcon();
+  }
+
+  Future<void> _loadHereIcon() async {
+    final image = await _blueDotImage();
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null || !mounted) return;
+    setState(() {
+      _hereIcon = BitmapDescriptor.bytes(bytes.buffer.asUint8List(), width: 28, height: 28);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +53,7 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
       markers: markers,
+      circles: _hereCircle(),
       onMapCreated: (controller) => _controller = controller,
       onCameraMove: (position) => _zoom = position.zoom,
       onCameraIdle: () => setState(() {}),
@@ -87,7 +106,59 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
         },
         draggable: selected,
       );
-    }).toSet();
+    }).toSet()
+      ..addAll(_hereMarker())
+      ..addAll(_dropMarker());
+  }
+
+  Set<Marker> _dropMarker() {
+    final drop = widget.state.drop;
+    if (drop == null) return const {};
+    return {
+      Marker(
+        markerId: const MarkerId('drop'),
+        position: LatLng(drop.lat, drop.lng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose),
+        anchor: const Offset(0.5, 1),
+        zIndexInt: 900,
+        consumeTapEvents: true,
+        infoWindow: const InfoWindow(title: '新規'),
+      ),
+    };
+  }
+
+  Set<Circle> _hereCircle() {
+    final here = widget.here;
+    if (here == null) return const {};
+    final radius = here.accuracy.isFinite && here.accuracy > 0 ? here.accuracy : 30.0;
+    return {
+      Circle(
+        circleId: const CircleId('here'),
+        center: LatLng(here.latitude, here.longitude),
+        radius: radius,
+        fillColor: const Color(0x334285F4),
+        strokeColor: const Color(0x664285F4),
+        strokeWidth: 1,
+        consumeTapEvents: true,
+        zIndex: 0,
+      ),
+    };
+  }
+
+  Set<Marker> _hereMarker() {
+    final here = widget.here;
+    final icon = _hereIcon;
+    if (here == null || icon == null) return const {};
+    return {
+      Marker(
+        markerId: const MarkerId('here'),
+        position: LatLng(here.latitude, here.longitude),
+        icon: icon,
+        anchor: const Offset(0.5, 0.5),
+        zIndexInt: 1000,
+        consumeTapEvents: true,
+      ),
+    };
   }
 
   String _key(Customer customer, bool selected) => '${customer.statusId}-${widget.state.tiers.tierOf(customer.unitPrice)}-$selected';
@@ -135,4 +206,15 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
     final n = math.pi - 2 * math.pi * y / _scale;
     return 180 / math.pi * math.atan(_sinh(n));
   }
+}
+
+Future<ui.Image> _blueDotImage() {
+  const size = 64.0;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final center = const Offset(size / 2, size / 2);
+  canvas.drawCircle(center, 16, Paint()..color = const Color(0x553A7BFF));
+  canvas.drawCircle(center, 11, Paint()..color = Colors.white);
+  canvas.drawCircle(center, 8, Paint()..color = const Color(0xFF1A73E8));
+  return recorder.endRecording().toImage(size.toInt(), size.toInt());
 }

@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../logic/price_tiers.dart';
 import '../logic/status_rules.dart';
 import '../state/app_state.dart';
+import 'back_button.dart';
 import 'format.dart';
 import 'pin_painter.dart';
 
@@ -37,7 +38,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
+      appBar: largeBackBar('設定', () => Navigator.maybePop(context)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

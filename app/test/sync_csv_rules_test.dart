@@ -55,6 +55,11 @@ void main() {
     );
   });
 
+  test('精度50mは地図の縮尺でピクセル半径になる', () {
+    expect(accuracyRadiusPixels(meters: 0, pixelsPerDegree: 14000), 0);
+    expect(accuracyRadiusPixels(meters: 50, pixelsPerDegree: 14000), closeTo(50 * 14000 / 111320, 0.01));
+  });
+
   test('単価帯の初期値と検証', () {
     const tiers = PriceTierConfig.defaults;
     expect(tiers.tierOf(49999), 0);

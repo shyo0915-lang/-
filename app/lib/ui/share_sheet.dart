@@ -54,7 +54,18 @@ class _ShareSheetState extends State<_ShareSheet> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('共有', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back, size: 26),
+                        label: const Text('顧客情報へ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                        style: TextButton.styleFrom(minimumSize: const Size(48, 56)),
+                      ),
+                      const Spacer(),
+                      const Text('共有', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   const Text('同じ会社の人だけを招待できます。初期の役割は閲覧者です。', style: TextStyle(fontSize: 14)),
                   const SizedBox(height: 12),

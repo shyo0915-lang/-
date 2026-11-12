@@ -11,9 +11,11 @@ import '../logic/validators.dart';
 import '../models/models.dart';
 import '../services/maps_loader.dart';
 import '../state/app_state.dart';
+import 'back_button.dart';
 import 'conflict_page.dart';
 import 'customer_photos.dart';
 import 'edit_form.dart';
+import 'new_customer_page.dart';
 import 'fallback_map.dart';
 import 'format.dart';
 import 'google_map_view.dart';
@@ -29,11 +31,14 @@ class MapPage extends StatefulWidget {
   State<MapPage> createState() => _MapPageState();
 }
 
-class _MapPageState extends State<MapPage> {
+class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   final _search = TextEditingController();
   final _fallbackKey = GlobalKey<FallbackMapState>();
   final _googleKey = GlobalKey<SalesGoogleMapState>();
   bool _mapsBroken = false;
+  StreamSubscription<Position>? _fixSub;
+  Position? _here;
+  CustomerDraft? _editDraft;
 
   AppState get app => widget.state;
   bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
@@ -41,9 +46,11 @@ class _MapPageState extends State<MapPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     app.confirm = _confirm;
     app.choose = _choose;
     app.addListener(_onAppChanged);
+    _startIfGranted();
     if (app.config.hasMaps) {
       _watchMaps();
     }
@@ -62,9 +69,60 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopWatch();
     app.removeListener(_onAppChanged);
     _search.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startIfGranted();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden || state == AppLifecycleState.detached) {
+      _stopWatch();
+    }
+  }
+
+  void _stopWatch() {
+    _fixSub?.cancel();
+    _fixSub = null;
+  }
+
+  Future<void> _startIfGranted() async {
+    final permission = await Geolocator.checkPermission();
+    if (!mounted) return;
+    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+      await _watch(moveCamera: false);
+    }
+  }
+
+  LocationSettings get _locationSettings => kIsWeb
+      ? WebSettings(accuracy: LocationAccuracy.high, distanceFilter: 8)
+      : const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 8);
+
+  Future<void> _watch({required bool moveCamera}) async {
+    _fixSub ??= Geolocator.getPositionStream(locationSettings: _locationSettings).listen(
+      (position) {
+        if (!mounted) return;
+        setState(() => _here = position);
+      },
+      onError: (_) {
+        _stopWatch();
+        if (mounted) app.showToast('現在地を取得できませんでした');
+      },
+    );
+    if (!moveCamera) return;
+    final position = await Geolocator.getCurrentPosition();
+    if (!mounted) return;
+    setState(() => _here = position);
+    if (_showGoogle) {
+      await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
+    } else {
+      _fallbackKey.currentState?.focus(position.latitude, position.longitude);
+    }
+    app.showToast('現在地に移動しました');
   }
 
   String? _pannedId;
@@ -100,8 +158,8 @@ class _MapPageState extends State<MapPage> {
         children: [
           Positioned.fill(
             child: _showGoogle
-                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin)
-                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin),
+                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here)
+                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin, here: _here),
           ),
           if (!app.repo.isOnline)
             const Positioned(
@@ -191,6 +249,26 @@ class _MapPageState extends State<MapPage> {
                   padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   child: Text('サンプルデータ', style: TextStyle(fontSize: 12, color: Color(0xFF5F6368))),
                 ),
+              ),
+            ),
+          if (app.sheet == SheetLevel.closed && _recall != null)
+            Positioned(
+              left: 12,
+              bottom: 28 + safeBottom,
+              child: FilledButton.icon(
+                onPressed: () => app.selectCustomer(_recall!.id),
+                icon: const Icon(Icons.assignment_ind),
+                label: const Text('顧客情報に戻る', style: TextStyle(fontSize: 18)),
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 56)),
+              ),
+            ),
+          if (app.sheet == SheetLevel.closed && app.drop != null)
+            Positioned(
+              left: 12,
+              bottom: 96 + safeBottom,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewCustomerPage(state: app))),
+                child: const Text('新規登録を続ける', style: TextStyle(fontSize: 18)),
               ),
             ),
           if (app.sheet == SheetLevel.closed)
@@ -362,7 +440,7 @@ class _MapPageState extends State<MapPage> {
           padding: const EdgeInsets.fromLTRB(4, 8, 8, 0),
           child: Row(
             children: [
-              TextButton(onPressed: () => app.setSheet(SheetLevel.half), child: const Text('‹ 地図', style: TextStyle(fontSize: 17))),
+              LargeBackButton(onPressed: () => _backToCard(customer)),
               const Expanded(child: Text('詳細・編集', textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
               OutlinedButton(onPressed: () => showShareSheet(context, app, customer), child: const Text('共有')),
               IconButton(
@@ -383,9 +461,10 @@ class _MapPageState extends State<MapPage> {
         Expanded(
           child: CustomerEditForm(
             key: ValueKey(customer.id),
-            initial: app.draftOf(customer),
+            initial: app.drafts[customer.id] ?? app.draftOf(customer),
             statuses: app.statuses,
             originalAddress: customer.address,
+            onChanged: (draft) => _editDraft = draft,
             onSuggest: app.suggest,
             updatedLabel: updated,
             onSave: (draft) => app.saveExisting(customer, draft),
@@ -441,25 +520,83 @@ class _MapPageState extends State<MapPage> {
         app.showToast('位置情報の権限がありません');
         return;
       }
-      final position = await Geolocator.getCurrentPosition();
-      if (_showGoogle) {
-        await _googleKey.currentState?.moveTo(position.latitude, position.longitude);
-      } else {
-        _fallbackKey.currentState?.focus(position.latitude, position.longitude);
-      }
-      app.showToast('現在地に移動しました');
+      await _watch(moveCamera: true);
     } catch (_) {
       app.showToast('現在地を取得できませんでした');
     }
   }
 
-  Future<void> _placePin(double lat, double lng) async {
-    if (app.selected == null) {
-      app.showToast('先に顧客を選ぶか、契約書から登録してください');
+  Customer? get _recall {
+    final id = app.recallId;
+    if (id == null) return null;
+    for (final customer in app.customers) {
+      if (customer.id == id) return customer;
+    }
+    return null;
+  }
+
+  bool _dirty(Customer customer, CustomerDraft draft) {
+    final origin = app.draftOf(customer);
+    return draft.name.trim() != origin.name.trim() ||
+        draft.phone.trim() != origin.phone.trim() ||
+        draft.address.trim() != origin.address.trim() ||
+        draft.memo.trim() != origin.memo.trim() ||
+        draft.contractDate != origin.contractDate ||
+        draft.price != origin.price ||
+        draft.statusId != origin.statusId;
+  }
+
+  Future<void> _backToCard(Customer customer) async {
+    final draft = _editDraft ?? app.drafts[customer.id] ?? app.draftOf(customer);
+    if (!_dirty(customer, draft)) {
+      app.forgetDraft(customer.id);
+      app.setSheet(SheetLevel.half);
       return;
     }
-    app.moveSelectedPin(lat, lng);
-    await app.persistSelectedPin();
+    final choice = await app.choose?.call('変更があります', ['保存する', '下書きとして残す', '破棄する']);
+    if (!mounted || choice == null) return;
+    if (choice == 0) {
+      await app.saveExisting(customer, draft);
+      app.forgetDraft(customer.id);
+      return;
+    }
+    if (choice == 1) {
+      app.rememberDraft(customer.id, draft);
+      app.setSheet(SheetLevel.half);
+      return;
+    }
+    app.forgetDraft(customer.id);
+    _editDraft = null;
+    app.setSheet(SheetLevel.half);
+  }
+
+  Future<void> _placePin(double lat, double lng) async {
+    if (app.placingPin && app.selected != null) {
+      app.moveSelectedPin(lat, lng);
+      await app.persistSelectedPin();
+      return;
+    }
+    final statusId = app.statuses.isEmpty ? '' : app.statuses.first.id;
+    var draft = CustomerDraft(
+      name: '',
+      phone: '',
+      address: '',
+      memo: '',
+      contractDate: '',
+      price: 0,
+      statusId: statusId,
+      lat: lat,
+      lng: lng,
+      locationSource: 'manual',
+    );
+    app.setDrop(MapDrop(lat: lat, lng: lng, draft: draft));
+    final address = await app.geocoder.reverseGeocode(lat, lng);
+    if (!mounted) return;
+    if (address != null && app.drop != null) {
+      draft = draft.copyWith(address: address);
+      app.setDrop(MapDrop(lat: lat, lng: lng, draft: draft));
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewCustomerPage(state: app)));
   }
 
   void _watchMaps() {

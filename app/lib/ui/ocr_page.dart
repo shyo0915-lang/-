@@ -12,6 +12,7 @@ import '../services/cloud_ocr.dart';
 import '../services/image_vault.dart';
 import '../services/mlkit_text.dart';
 import '../state/app_state.dart';
+import 'back_button.dart';
 import 'format.dart';
 
 class OcrPage extends StatefulWidget {
@@ -46,6 +47,12 @@ class _OcrPageState extends State<OcrPage> {
     return Scaffold(
       backgroundColor: _step == 'review' ? null : const Color(0xFF121212),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leadingWidth: 132,
+        leading: LargeBackButton(
+          onPressed: () => Navigator.maybePop(context),
+          label: '戻る',
+        ),
         backgroundColor: _step == 'review' ? null : const Color(0xFF121212),
         foregroundColor: _step == 'review' ? null : Colors.white,
         title: Text(_step == 'review' ? '読み取り結果の確認' : '契約書を撮影', style: const TextStyle(fontSize: 18)),

@@ -13,6 +13,17 @@ import '../services/geocoder.dart';
 
 enum SheetLevel { closed, peak, half, full }
 
+/// 長押しで置いた、まだ保存していないピン。
+class MapDrop {
+  const MapDrop({required this.lat, required this.lng, required this.draft});
+
+  final double lat;
+  final double lng;
+  final CustomerDraft draft;
+
+  MapDrop copyWith({CustomerDraft? draft}) => MapDrop(lat: lat, lng: lng, draft: draft ?? this.draft);
+}
+
 class AppState extends ChangeNotifier {
   AppState({required this.repo, required this.config, required this.geocoder});
 
@@ -31,6 +42,9 @@ class AppState extends ChangeNotifier {
   final Set<String> hiddenFilters = {};
   String? selectedId;
   SheetLevel sheet = SheetLevel.closed;
+  String? recallId;
+  MapDrop? drop;
+  final Map<String, CustomerDraft> drafts = {};
   String? toast;
   bool busy = false;
   bool placingPin = false;
@@ -110,17 +124,38 @@ class AppState extends ChangeNotifier {
 
   void selectCustomer(String id) {
     selectedId = id;
+    recallId = id;
     sheet = SheetLevel.half;
     placingPin = false;
     notifyListeners();
   }
 
   void setSheet(SheetLevel level) {
+    if (level == SheetLevel.closed && selectedId != null) recallId = selectedId;
     sheet = level;
     if (level == SheetLevel.closed) {
       selectedId = null;
       placingPin = false;
     }
+    notifyListeners();
+  }
+
+  void rememberDraft(String customerId, CustomerDraft draft) {
+    drafts[customerId] = draft;
+    notifyListeners();
+  }
+
+  void forgetDraft(String customerId) {
+    drafts.remove(customerId);
+  }
+
+  void setDrop(MapDrop value) {
+    drop = value;
+    notifyListeners();
+  }
+
+  void clearDrop() {
+    drop = null;
     notifyListeners();
   }
 

@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../logic/cluster.dart';
+import '../logic/geo.dart';
 import '../logic/price_tiers.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
@@ -8,10 +12,11 @@ import 'format.dart';
 import 'pin_painter.dart';
 
 class FallbackMap extends StatefulWidget {
-  const FallbackMap({super.key, required this.state, required this.onLongPress});
+  const FallbackMap({super.key, required this.state, required this.onLongPress, this.here});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
+  final Position? here;
 
   @override
   State<FallbackMap> createState() => FallbackMapState();
@@ -21,6 +26,36 @@ class FallbackMapState extends State<FallbackMap> {
   double centerLat = 35.682;
   double centerLng = 139.772;
   double scale = 14000;
+  Timer? _hold;
+  Offset? _holdAt;
+  var _moved = false;
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    super.dispose();
+  }
+
+  void _armHold(Offset local, Size size) {
+    _hold?.cancel();
+    _holdAt = local;
+    _moved = false;
+    _hold = Timer(const Duration(milliseconds: 550), () {
+      if (!mounted || _moved || _holdAt == null) return;
+      final lat = centerLat - (local.dy - size.height / 2) / scale;
+      final lng = centerLng + (local.dx - size.width / 2) / scale;
+      widget.onLongPress(lat, lng);
+    });
+  }
+
+  void _cancelHoldIfMoved(Offset local) {
+    final origin = _holdAt;
+    if (origin == null) return;
+    if ((local - origin).distance > 16) {
+      _moved = true;
+      _hold?.cancel();
+    }
+  }
 
   void zoomIn() => setState(() => scale = (scale * 1.4).clamp(2000, 80000));
   void zoomOut() => setState(() => scale = (scale / 1.4).clamp(2000, 80000));
@@ -44,18 +79,22 @@ class FallbackMapState extends State<FallbackMap> {
           byId[customer.id] = customer;
         }
         final clusters = clusterPins(points, radius: 46);
-        return GestureDetector(
+        return Listener(
+          onPointerDown: (event) => _armHold(event.localPosition, size),
+          onPointerMove: (event) => _cancelHoldIfMoved(event.localPosition),
+          onPointerUp: (_) => _hold?.cancel(),
+          onPointerCancel: (_) => _hold?.cancel(),
+          child: GestureDetector(
           onScaleUpdate: (details) {
+            if (details.focalPointDelta.distance > 2 || (details.scale - 1).abs() > 0.02) {
+              _moved = true;
+              _hold?.cancel();
+            }
             setState(() {
               centerLng -= details.focalPointDelta.dx / scale;
               centerLat += details.focalPointDelta.dy / scale;
               if (details.scale != 1) scale = (scale * (1 + (details.scale - 1) * 0.15)).clamp(2000, 80000);
             });
-          },
-          onLongPressStart: (details) {
-            final lat = centerLat - (details.localPosition.dy - size.height / 2) / scale;
-            final lng = centerLng + (details.localPosition.dx - size.width / 2) / scale;
-            widget.onLongPress(lat, lng);
           },
           child: Stack(
             children: [
@@ -82,8 +121,11 @@ class FallbackMapState extends State<FallbackMap> {
                   )
                 else
                   _pin(byId[cluster.ids.single]!, cluster.x, cluster.y),
+              if (widget.here != null) _hereDot(widget.here!, size),
+              if (widget.state.drop != null) _dropPin(widget.state.drop!, size),
             ],
           ),
+        ),
         );
       },
     );
@@ -122,9 +164,60 @@ class FallbackMapState extends State<FallbackMap> {
     );
   }
 
+  Widget _dropPin(MapDrop drop, Size size) {
+    final point = _project(drop.lat, drop.lng, size);
+    return Positioned(
+      left: point.dx - 18,
+      top: point.dy - 42,
+      child: GestureDetector(
+        onTap: () {},
+        child: const Column(
+          children: [
+            Icon(Icons.location_on, color: Color(0xFFD93025), size: 42),
+            Text('新規', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFD93025))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _hereDot(Position here, Size size) {
+    final point = _project(here.latitude, here.longitude, size);
+    final accuracy = here.accuracy.isFinite && here.accuracy > 0 ? here.accuracy : 30.0;
+    final radius = accuracyRadiusPixels(meters: accuracy, pixelsPerDegree: scale).clamp(12.0, 240.0);
+    return Positioned(
+      left: point.dx - radius,
+      top: point.dy - radius,
+      child: GestureDetector(
+        onTap: () {},
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: CustomPaint(painter: _HereDotPainter(radius)),
+        ),
+      ),
+    );
+  }
+
   Offset _project(double lat, double lng, Size size) {
     return Offset((lng - centerLng) * scale + size.width / 2, (centerLat - lat) * scale + size.height / 2);
   }
+}
+
+class _HereDotPainter extends CustomPainter {
+  const _HereDotPainter(this.radius);
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    canvas.drawCircle(center, radius, Paint()..color = const Color(0x334285F4));
+    canvas.drawCircle(center, 9, Paint()..color = Colors.white);
+    canvas.drawCircle(center, 6, Paint()..color = const Color(0xFF1A73E8));
+  }
+
+  @override
+  bool shouldRepaint(covariant _HereDotPainter oldDelegate) => oldDelegate.radius != radius;
 }
 
 class _StreetPainter extends CustomPainter {

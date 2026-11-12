@@ -48,9 +48,32 @@ List<GeoHit> parseCsisGeocode(String body, String fallbackAddress) {
   return hits;
 }
 
+/// 国土地理院の市区町村コード表。`13,東京都,13101,千代田区` を都道府県＋市区町村にする。
+Map<String, String> parseGsiMuniScript(String source) {
+  final names = <String, String>{};
+  for (final match in RegExp('\\["(\\d+)"\\]\\s*=\\s*\'([^\']*)\'').allMatches(source)) {
+    final parts = (match.group(2) ?? '').split(',');
+    if (parts.length < 4) continue;
+    names[match.group(1)!] = '${parts[1]}${parts[3]}';
+  }
+  return names;
+}
+
+/// 逆ジオコーダーの応答と市区町村名から、番地のない住所を作る。
+String? formatGsiReverseAddress(Object? json, Map<String, String> municipalities) {
+  if (json is! Map) return null;
+  final results = json['results'];
+  if (results is! Map) return null;
+  final code = results['muniCd']?.toString() ?? '';
+  final town = (results['lv01Nm'] as String?)?.trim() ?? '';
+  final text = '${municipalities[code] ?? ''}$town'.trim();
+  return text.isEmpty ? null : text;
+}
+
 abstract class Geocoder {
   Future<List<GeoHit>> geocode(String address);
   Future<List<String>> suggest(String input);
+  Future<String?> reverseGeocode(double lat, double lng) async => null;
 }
 
 class RoutingGeocoder implements Geocoder {
@@ -59,6 +82,7 @@ class RoutingGeocoder implements Geocoder {
   final AppConfig config;
   final http.Client _client;
   final String? Function()? accessToken;
+  Map<String, String>? _municipalities;
 
   @override
   Future<List<GeoHit>> geocode(String address) async {
@@ -111,6 +135,36 @@ class RoutingGeocoder implements Geocoder {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 緯度経度から町名まで。失敗したら null（住所は空欄のまま）。
+  @override
+  Future<String?> reverseGeocode(double lat, double lng) async {
+    const hosts = ['mreversegeo.gsi.go.jp', 'mreversegeocoder.gsi.go.jp'];
+    for (final host in hosts) {
+      try {
+        final uri = Uri.https(host, '/reverse-geocoder/LonLatToAddress', {'lat': '$lat', 'lon': '$lng'});
+        final response = await _client.get(uri).timeout(const Duration(seconds: 4));
+        if (response.statusCode != 200 || !response.body.trimLeft().startsWith('{')) continue;
+        final names = await _loadMunicipalities();
+        final address = formatGsiReverseAddress(jsonDecode(response.body), names);
+        if (address != null) return address;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<Map<String, String>> _loadMunicipalities() async {
+    final cached = _municipalities;
+    if (cached != null) return cached;
+    try {
+      final response = await _client.get(Uri.parse('https://maps.gsi.go.jp/js/muni.js')).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        _municipalities = parseGsiMuniScript(response.body);
+        return _municipalities!;
+      }
+    } catch (_) {}
+    return _municipalities = const {};
   }
 
   Future<List<GeoHit>> _geocodeViaCsis(String address) async {

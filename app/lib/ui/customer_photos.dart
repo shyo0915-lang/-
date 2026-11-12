@@ -99,20 +99,36 @@ class CustomerPhotoStrip extends StatelessWidget {
                 child: Image.memory(bytes, fit: BoxFit.contain),
               ),
             ),
-            SafeArea(
+            const SafeArea(
               child: Align(
                 alignment: Alignment.topLeft,
-                child: IconButton(
-                  iconSize: 32,
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  tooltip: '閉じる',
+                child: Padding(
+                  padding: EdgeInsets.only(left: 4),
+                  child: _PhotoBack(),
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PhotoBack extends StatelessWidget {
+  const _PhotoBack();
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: () => Navigator.pop(context),
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: Colors.black54,
+        minimumSize: const Size(48, 56),
+      ),
+      icon: const Icon(Icons.arrow_back, size: 26),
+      label: const Text('閉じる', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
     );
   }
 }

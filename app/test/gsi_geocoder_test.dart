@@ -31,6 +31,17 @@ void main() {
     expect(hits.single.formattedAddress, '東京都千代田区丸の内一丁目９番');
   });
 
+  test('逆ジオコードは市区町村と町名をつなぐ', () {
+    const source = '''GSI.MUNI_ARRAY["13101"] = '13,東京都,13101,千代田区';''';
+    final names = parseGsiMuniScript(source);
+    expect(names['13101'], '東京都千代田区');
+    expect(
+      formatGsiReverseAddress({'results': {'muniCd': '13101', 'lv01Nm': '丸の内一丁目'}}, names),
+      '東京都千代田区丸の内一丁目',
+    );
+    expect(formatGsiReverseAddress({'results': null}, names), isNull);
+  });
+
   test('空や壊れた応答は候補なし', () {
     expect(parseGsiAddressSearch('[]', '住所'), isEmpty);
     expect(parseGsiAddressSearch('{"error":true}', '住所'), isEmpty);

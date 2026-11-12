@@ -1,5 +1,12 @@
 import 'dart:math' as math;
 
+/// 緯度1度を約111.32kmとして、精度円の半径を画面上のピクセルにする。
+double accuracyRadiusPixels({required double meters, required double pixelsPerDegree}) {
+  const metersPerDegree = 111320.0;
+  if (meters <= 0 || pixelsPerDegree <= 0) return 0;
+  return meters * pixelsPerDegree / metersPerDegree;
+}
+
 double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
   const earth = 6371000.0;
   double rad(double degree) => degree * math.pi / 180;
