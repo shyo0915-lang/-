@@ -13,6 +13,11 @@ class AppConfig {
 
   bool get hasSupabase => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
   bool get hasMaps => mapsApiKey.isNotEmpty;
+
+  /// 地図の既定表示は簡易地図（FallbackMap）。
+  /// Google マップ表示に戻すときは、ビルド時に --dart-define=USE_GOOGLE_MAP=true を付ける。
+  static const bool _googleMapOptIn = bool.fromEnvironment('USE_GOOGLE_MAP', defaultValue: false);
+  bool get useGoogleMap => _googleMapOptIn;
   String get geocodingKey => geocodingApiKey.isNotEmpty ? geocodingApiKey : mapsApiKey;
 
   static const fromEnvironment = AppConfig(

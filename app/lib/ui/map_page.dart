@@ -46,7 +46,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   var _userMovedMap = false;
 
   AppState get app => widget.state;
-  bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
+  bool get _showGoogle => app.config.useGoogleMap && app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
 
   @override
   void initState() {
