@@ -12,6 +12,28 @@ class GeoHit {
   final String formattedAddress;
 }
 
+/// 国土地理院の住所検索。`coordinates` は [経度, 緯度]。
+List<GeoHit> parseGsiAddressSearch(String body, String fallbackAddress) {
+  final decoded = jsonDecode(body);
+  if (decoded is! List) return const [];
+  final hits = <GeoHit>[];
+  for (final item in decoded.take(5)) {
+    if (item is! Map) continue;
+    final geometry = item['geometry'];
+    if (geometry is! Map) continue;
+    final coordinates = geometry['coordinates'];
+    if (coordinates is! List || coordinates.length < 2) continue;
+    final lng = coordinates[0];
+    final lat = coordinates[1];
+    if (lng is! num || lat is! num) continue;
+    final properties = item['properties'];
+    final title = properties is Map ? properties['title'] : null;
+    final label = title is String && title.trim().isNotEmpty ? title.trim() : fallbackAddress;
+    hits.add(GeoHit(lat.toDouble(), lng.toDouble(), label));
+  }
+  return hits;
+}
+
 abstract class Geocoder {
   Future<List<GeoHit>> geocode(String address);
   Future<List<String>> suggest(String input);
@@ -28,6 +50,8 @@ class RoutingGeocoder implements Geocoder {
   Future<List<GeoHit>> geocode(String address) async {
     final query = address.trim();
     if (query.isEmpty) return const [];
+    final fromGsi = await _geocodeViaGsi(query);
+    if (fromGsi.isNotEmpty) return fromGsi;
     try {
       final browserHits = await geocodeWithMapsJs(query);
       if (browserHits.isNotEmpty) {
@@ -55,6 +79,17 @@ class RoutingGeocoder implements Geocoder {
         final location = (row['geometry'] as Map)['location'] as Map;
         return GeoHit((location['lat'] as num).toDouble(), (location['lng'] as num).toDouble(), row['formatted_address'] as String? ?? query);
       }).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<GeoHit>> _geocodeViaGsi(String address) async {
+    final uri = Uri.https('msearch.gsi.go.jp', '/address-search/AddressSearch', {'q': address});
+    try {
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) return const [];
+      return parseGsiAddressSearch(response.body, address);
     } catch (_) {
       return const [];
     }

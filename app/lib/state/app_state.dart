@@ -168,13 +168,20 @@ class AppState extends ChangeNotifier {
           final meters = distanceMeters(original.lat!, original.lng!, hit.lat, hit.lng);
           final choice = await choose?.call('位置が${meters.round()}m離れています', ['手動で置いたピンを使う', '住所から求めた位置を使う']);
           useGeocode = choice == 1;
+        } else {
+          useGeocode = await confirm?.call('この位置にピンを置きます\n${hit.formattedAddress}') ?? true;
         }
         if (useGeocode) {
           lat = hit.lat;
           lng = hit.lng;
           source = 'geocoded';
+        } else if (lat == null) {
+          source = 'pending';
+          placingPin = true;
+          showToast('住所を位置に変換できませんでした。地図を長押ししてピンを置いてください');
         } else {
           source = 'manual';
+          showToast('いまのピンを残しました。ドラッグして直せます');
         }
       } else if (hits.length > 1) {
         final index = await choose?.call('住所の候補', hits.map((hit) => hit.formattedAddress).toList());
