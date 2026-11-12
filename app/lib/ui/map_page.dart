@@ -9,6 +9,7 @@ import '../logic/validators.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import 'conflict_page.dart';
+import 'customer_photos.dart';
 import 'edit_form.dart';
 import 'fallback_map.dart';
 import 'format.dart';
@@ -267,28 +268,38 @@ class _MapPageState extends State<MapPage> {
             Text(customer.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
             if (app.sheet != SheetLevel.peak) ...[
               const SizedBox(height: 4),
-              Text(customer.address, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-              GestureDetector(
-                onLongPress: () {
-                  Clipboard.setData(ClipboardData(text: customer.phone));
-                  app.showToast('電話番号をコピーしました');
-                },
-                child: Text(customer.phone, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-              ),
-              if (customer.memo.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(memoExcerpt(customer.memo), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(customer.address, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
+                      GestureDetector(
+                        onLongPress: () {
+                          Clipboard.setData(ClipboardData(text: customer.phone));
+                          app.showToast('電話番号をコピーしました');
+                        },
+                        child: Text(customer.phone, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
+                      ),
+                      if (customer.memo.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(memoExcerpt(customer.memo), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+                        ),
+                      const SizedBox(height: 8),
+                      if (customer.photos.isNotEmpty) CustomerPhotoStrip(state: app, customer: customer, compact: true),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _metric('契約日', formatIso(customer.contractDate)),
+                          const SizedBox(width: 20),
+                          _metric('単価（1回）', formatYen(customer.unitPrice)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  _metric('契約日', formatIso(customer.contractDate)),
-                  const SizedBox(width: 20),
-                  _metric('単価（1回）', formatYen(customer.unitPrice)),
-                ],
               ),
-              const Spacer(),
               Row(
                 children: [
                   Expanded(child: SizedBox(height: 56, child: FilledButton(onPressed: () => _call(customer.phone), child: const Text('電話する', style: TextStyle(fontSize: 18))))),
@@ -350,6 +361,7 @@ class _MapPageState extends State<MapPage> {
             onSuggest: app.suggest,
             updatedLabel: updated,
             onSave: (draft) => app.saveExisting(customer, draft),
+            header: CustomerPhotoStrip(state: app, customer: customer, allowEdit: true),
           ),
         ),
       ],

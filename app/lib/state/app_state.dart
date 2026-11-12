@@ -21,6 +21,8 @@ class AppState extends ChangeNotifier {
   final Geocoder geocoder;
   final _ids = const Uuid();
 
+  String newId() => _ids.v4();
+
   List<Customer> customers = [];
   List<CustomerStatus> statuses = [];
   PriceTierConfig tiers = PriceTierConfig.defaults;

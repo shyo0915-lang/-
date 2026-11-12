@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../logic/price_tiers.dart';
 import '../logic/status_rules.dart';
 import '../models/models.dart';
@@ -38,6 +40,8 @@ abstract class AppRepository {
   Future<void> resolveConflict({required SyncConflict conflict, required bool useDevice});
   Future<SyncReport> sync();
   Future<void> saveLocalImage(String customerId, String path);
+  Future<void> saveCustomerPhotos(Customer customer);
+  Future<Uint8List?> loadPhoto(CustomerPhoto photo);
   bool get isOnline;
   void setConnectivity(bool online);
 }

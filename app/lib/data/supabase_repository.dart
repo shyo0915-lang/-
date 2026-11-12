@@ -290,6 +290,89 @@ class SupabaseAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> saveCustomerPhotos(Customer customer) async {
+    final previous = await local.customer(customer.id);
+    await local.upsertCustomer(
+      customer,
+      baseJson: await local.baseJson(customer.id),
+      pending: customer.pendingSync,
+    );
+    for (final photo in customer.photos) {
+      if (photo.pending && photo.localPath != null) {
+        final bytes = await ImageVault().read(photo.localPath!);
+        if (bytes == null) continue;
+        await local.enqueue('upload_customer_photo', {
+          'customerId': customer.id,
+          'photoId': photo.id,
+          'bytes': base64Encode(bytes),
+        });
+      }
+    }
+    if (previous != null) {
+      for (final photo in previous.photos) {
+        if (customer.photos.every((item) => item.id != photo.id)) {
+          await local.enqueue('delete_customer_photo', {
+            'customerId': customer.id,
+            'photoId': photo.id,
+            'storagePath': photo.storagePath,
+          });
+        }
+      }
+    }
+    await sync();
+  }
+
+  @override
+  Future<Uint8List?> loadPhoto(CustomerPhoto photo) async {
+    if (photo.localPath != null) {
+      final localBytes = await ImageVault().read(photo.localPath!);
+      if (localBytes != null) return localBytes;
+    }
+    final storagePath = photo.storagePath;
+    if (storagePath == null || storagePath.isEmpty) return null;
+    final url = await client.storage.from('customer-photos').createSignedUrl(storagePath, 60);
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) return null;
+    return response.bodyBytes;
+  }
+
+  Future<void> _uploadCustomerPhoto(Map<String, dynamic> payload) async {
+    final bytes = base64Decode(payload['bytes'] as String);
+    final customerId = payload['customerId'] as String;
+    final photoId = payload['photoId'] as String;
+    final me = _session!;
+    final path = '${me.orgId}/$customerId/$photoId.jpg';
+    await client.storage.from('customer-photos').uploadBinary(
+      path,
+      bytes,
+      fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+    );
+    await client.from('customer_photos').upsert({
+      'id': photoId,
+      'customer_id': customerId,
+      'storage_path': path,
+    });
+    final customer = await local.customer(customerId);
+    if (customer == null) return;
+    final photos = [
+      for (final photo in customer.photos)
+        if (photo.id == photoId) photo.copyWith(storagePath: path, pending: false) else photo,
+    ];
+    await local.upsertCustomer(customer.copyWith(photos: photos), baseJson: await local.baseJson(customerId), pending: false);
+  }
+
+  Future<void> _deleteRemotePhoto(Map<String, dynamic> payload) async {
+    final storagePath = payload['storagePath'] as String?;
+    final photoId = payload['photoId'] as String?;
+    if (storagePath != null && storagePath.isNotEmpty) {
+      await client.storage.from('customer-photos').remove([storagePath]);
+    }
+    if (photoId != null) {
+      await client.from('customer_photos').delete().eq('id', photoId);
+    }
+  }
+
+  @override
   Future<void> saveLocalImage(String customerId, String path) async {
     final customer = await local.customer(customerId);
     if (customer == null) return;
@@ -375,6 +458,12 @@ class SupabaseAppRepository implements AppRepository {
         return 0;
       case 'upload_image':
         await _uploadImage(payload);
+        return 0;
+      case 'upload_customer_photo':
+        await _uploadCustomerPhoto(payload);
+        return 0;
+      case 'delete_customer_photo':
+        await _deleteRemotePhoto(payload);
         return 0;
       default:
         return 0;
@@ -507,6 +596,15 @@ class SupabaseAppRepository implements AppRepository {
     ''').isFilter('deleted_at', null);
     final members = {for (final member in await loadMembers()) member.id: member.displayName};
     final me = _session!.userId;
+    final photoRows = await client.from('customer_photos').select('id, customer_id, storage_path');
+    final photosByCustomer = <String, List<CustomerPhoto>>{};
+    for (final item in photoRows as List) {
+      final row = item as Map<String, dynamic>;
+      final customerId = row['customer_id'] as String;
+      photosByCustomer.putIfAbsent(customerId, () => []).add(
+        CustomerPhoto(id: row['id'] as String, storagePath: row['storage_path'] as String?),
+      );
+    }
     final remoteIds = <String>{};
     for (final item in rows as List) {
       final row = item as Map<String, dynamic>;
@@ -514,7 +612,14 @@ class SupabaseAppRepository implements AppRepository {
       remoteIds.add(id);
       final existing = await local.customer(id);
       if (existing != null && existing.pendingSync) continue;
-      final customer = _customerFromRemote(row, members, me);
+      final remotePhotos = photosByCustomer[id] ?? const <CustomerPhoto>[];
+      final pendingLocal = existing?.photos.where((photo) => photo.pending).toList() ?? const <CustomerPhoto>[];
+      final mergedPhotos = [
+        ...remotePhotos,
+        for (final photo in pendingLocal)
+          if (remotePhotos.every((item) => item.id != photo.id)) photo,
+      ];
+      final customer = _customerFromRemote(row, members, me).copyWith(photos: mergedPhotos);
       await local.upsertCustomer(customer, baseJson: jsonEncode(customer.toSyncMap()), pending: false);
     }
     for (final customer in await local.customers()) {
@@ -685,6 +790,7 @@ Map<String, Object?> _customerJsonPublic(Customer customer) => {
   'ocrConfidence': customer.ocrConfidence,
   'imageLocalPath': customer.imageLocalPath,
   'imageStoragePath': customer.imageStoragePath,
+  'photos': [for (final photo in customer.photos) photo.toJson()],
   'sharedWithMe': customer.sharedWithMe,
 };
 
@@ -711,6 +817,7 @@ Customer _customerFromPublic(Map<String, dynamic> json) {
     ocrConfidence: (json['ocrConfidence'] as num?)?.toDouble(),
     imageLocalPath: json['imageLocalPath'] as String?,
     imageStoragePath: json['imageStoragePath'] as String?,
+    photos: CustomerPhoto.listFromJson(json['photos']),
     pendingSync: true,
     sharedWithMe: json['sharedWithMe'] as bool? ?? false,
   );

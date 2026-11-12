@@ -34,4 +34,5 @@ textarea { min-height: 120px; resize: vertical; }
 .error { color: #b3261e; }
 .grid-2 { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
 @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
-img.contract { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+img.contract, .photo-card img { width: 140px; height: 140px; object-fit: cover; border-radius: 12px; border: 1px solid #ddd; }
+.photo-card { display: inline-flex; flex-direction: column; gap: 6px; align-items: center; }

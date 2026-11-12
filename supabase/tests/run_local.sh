@@ -51,6 +51,8 @@ grant usage on schema auth to authenticated;
 grant execute on function auth.uid() to authenticated;
 SQL
 
-psql -v ON_ERROR_STOP=1 -d "$DB" -f "$ROOT/supabase/migrations/20261110120000_init.sql"
+for migration in "$ROOT"/supabase/migrations/*.sql; do
+  psql -v ON_ERROR_STOP=1 -d "$DB" -f "$migration"
+done
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$ROOT/supabase/tests/rls_test.sql"
 echo "RLS tests passed"

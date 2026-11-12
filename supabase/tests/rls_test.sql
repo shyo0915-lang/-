@@ -360,6 +360,46 @@ begin
 end $$;
 
 reset role;
+select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+set role authenticated;
+
+insert into public.customer_photos (id, customer_id, storage_path)
+values (
+  'e0000000-0000-4000-8000-000000000001',
+  'd0000000-0000-4000-8000-00000000000c',
+  '11111111-1111-4111-8111-111111111111/d0000000-0000-4000-8000-00000000000c/e0000000-0000-4000-8000-000000000001.jpg'
+);
+
+reset role;
+select set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);
+set role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.customer_photos
+    where id = 'e0000000-0000-4000-8000-000000000001'
+  ) then
+    raise exception 'B should not see a photo of a customer they cannot view';
+  end if;
+  begin
+    insert into public.customer_photos (customer_id, storage_path)
+    values (
+      'd0000000-0000-4000-8000-00000000000c',
+      'x/d0000000-0000-4000-8000-00000000000c/nope.jpg'
+    );
+    raise exception 'B must not attach a photo';
+  exception
+    when insufficient_privilege then
+      null;
+    when others then
+      if sqlerrm not like '%row-level security%' then
+        raise;
+      end if;
+  end;
+end $$;
+
+reset role;
 
 do $$
 begin
