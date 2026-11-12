@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import '../logic/cluster.dart';
 import '../logic/hold_gesture.dart';
 import '../logic/geo.dart';
+import '../logic/map_camera.dart';
 import '../logic/price_tiers.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
@@ -11,20 +12,39 @@ import 'format.dart';
 import 'pin_painter.dart';
 
 class FallbackMap extends StatefulWidget {
-  const FallbackMap({super.key, required this.state, required this.onLongPress, this.here});
+  const FallbackMap({super.key, required this.state, required this.onLongPress, this.here, this.camera = MapCamera.initial, this.onCameraSettled});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
   final Position? here;
+  final MapCamera camera;
+  final ValueChanged<MapCamera>? onCameraSettled;
 
   @override
   State<FallbackMap> createState() => FallbackMapState();
 }
 
 class FallbackMapState extends State<FallbackMap> {
-  double centerLat = 35.682;
-  double centerLng = 139.772;
-  double scale = 14000;
+  late double centerLat = widget.camera.lat;
+  late double centerLng = widget.camera.lng;
+  late double scale = fallbackScaleForZoom(widget.camera.zoom);
+
+  @override
+  void didUpdateWidget(FallbackMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.camera;
+    final prev = oldWidget.camera;
+    if (next.lat == prev.lat && next.lng == prev.lng && next.zoom == prev.zoom) return;
+    setState(() {
+      centerLat = next.lat;
+      centerLng = next.lng;
+      scale = fallbackScaleForZoom(next.zoom);
+    });
+  }
+
+  void _reportCamera() {
+    widget.onCameraSettled?.call(MapCamera(centerLat, centerLng, zoomForFallbackScale(scale)));
+  }
   final _hold = HoldGesture();
 
   @override
@@ -66,7 +86,10 @@ class FallbackMapState extends State<FallbackMap> {
             });
           },
           onPointerMove: (event) => _hold.move(event.localPosition),
-          onPointerUp: (_) => _hold.up(),
+          onPointerUp: (_) {
+            _hold.up();
+            _reportCamera();
+          },
           onPointerCancel: (_) => _hold.up(),
           child: GestureDetector(
           onScaleUpdate: (details) {

@@ -60,35 +60,56 @@ class ValidationResult {
   bool get ok => errors.isEmpty;
 }
 
+bool draftHasPin(CustomerDraft draft) => draft.lat != null && draft.lng != null;
+
+/// 空の名前は、住所か「未入力の顧客」と日時で埋める。ステータスが空なら見込みを使う。
+CustomerDraft prepareCustomerDraft(CustomerDraft draft, {DateTime? now, String fallbackStatusId = ''}) {
+  final clock = now ?? DateTime.now();
+  var name = draft.name.trim();
+  final address = draft.address.trim();
+  if (name.isEmpty) {
+    if (address.isNotEmpty) {
+      name = address.length > 100 ? address.substring(0, 100) : address;
+    } else if (draftHasPin(draft)) {
+      final stamp =
+          '${clock.year}/${clock.month.toString().padLeft(2, '0')}/${clock.day.toString().padLeft(2, '0')} '
+          '${clock.hour.toString().padLeft(2, '0')}:${clock.minute.toString().padLeft(2, '0')}';
+      name = '未入力の顧客 $stamp';
+    }
+  }
+  final hasPin = draftHasPin(draft);
+  return draft.copyWith(
+    name: name,
+    statusId: draft.statusId.trim().isEmpty ? fallbackStatusId : draft.statusId,
+    locationSource: hasPin ? (draft.locationSource == 'pending' ? 'manual' : draft.locationSource) : 'pending',
+  );
+}
+
 ValidationResult validateCustomer(CustomerDraft draft, {DateTime? today, bool requireLocation = false}) {
   final errors = <String, String>{};
   final warnings = <String>[];
   final name = draft.name.trim();
-  if (name.isEmpty) {
+  final hasPin = draftHasPin(draft);
+  if (name.isEmpty && !hasPin) {
     errors['name'] = '顧客名を入力してください';
   } else if (name.length > 100) {
     errors['name'] = '100文字以内で入力してください';
   }
-  if (!isValidJpPhone(draft.phone)) {
+  final phone = draft.phone.trim();
+  if (phone.isNotEmpty && !isValidJpPhone(phone)) {
     errors['phone'] = '10〜11桁の電話番号を入力してください';
   }
-  if (draft.address.trim().isEmpty) {
-    errors['address'] = '住所を入力してください';
-  } else if (draft.address.trim().length > 300) {
+  final address = draft.address.trim();
+  if (address.length > 300) {
     errors['address'] = '住所は300文字以内にしてください';
   }
-  if (draft.price < 1) {
-    errors['price'] = '1円以上で入力してください';
-  }
-  if (draft.statusId.isEmpty) {
-    errors['status'] = 'ステータスを選択してください';
+  if (draft.price < 0) {
+    errors['price'] = '0円以上で入力してください';
   }
   if (draft.memo.length > 4000) {
     errors['memo'] = 'メモは4000文字以内にしてください';
   }
-  if (draft.contractDate.trim().isEmpty) {
-    errors['date'] = '契約日を入力してください';
-  } else {
+  if (draft.contractDate.trim().isNotEmpty) {
     final parsed = DateTime.tryParse(draft.contractDate);
     if (parsed == null) {
       errors['date'] = '契約日を入力してください';
@@ -99,7 +120,7 @@ ValidationResult validateCustomer(CustomerDraft draft, {DateTime? today, bool re
       if (day.isAfter(todayDay)) warnings.add('未来の日付です');
     }
   }
-  if (requireLocation && (draft.lat == null || draft.lng == null)) {
+  if (requireLocation && !hasPin && name.isEmpty) {
     errors['location'] = '地図を長押ししてピンの位置を指定してください';
   }
   return ValidationResult(errors, warnings);

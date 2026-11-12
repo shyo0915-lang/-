@@ -1,6 +1,7 @@
 import 'package:field_sales/logic/cluster.dart';
 import 'package:field_sales/logic/csv_customers.dart';
 import 'package:field_sales/logic/geo.dart';
+import 'package:field_sales/logic/map_camera.dart';
 import 'package:field_sales/logic/price_tiers.dart';
 import 'package:field_sales/logic/status_rules.dart';
 import 'package:field_sales/logic/sync_merge.dart';
@@ -53,6 +54,17 @@ void main() {
       shouldAskLocationChoice(manualLat: 35.681, manualLng: 139.767, geocodedLat: 35.690, geocodedLng: 139.790),
       isTrue,
     );
+  });
+
+  test('保存した範囲が無ければ現在地かピンに寄る', () {
+    final one = fitPins(const [(lat: 35.68, lng: 139.76)]);
+    expect(one?.zoom, 16);
+    final wide = fitPins(const [(lat: 35.0, lng: 139.0), (lat: 43.0, lng: 141.0)]);
+    expect(wide!.zoom, greaterThanOrEqualTo(14));
+    expect(wide.zoom, lessThanOrEqualTo(17));
+    expect(MapCamera.parse({'lat': 35.6, 'lng': 139.7, 'zoom': 3}), isNull);
+    expect(MapCamera.parse({'lat': 35.6, 'lng': 139.7, 'zoom': 16.5})?.zoom, 16.5);
+    expect(zoomForFallbackScale(fallbackScaleForZoom(16.5)), closeTo(16.5, 0.001));
   });
 
   test('精度50mは地図の縮尺でピクセル半径になる', () {
@@ -133,7 +145,24 @@ void main() {
     );
     expect(bad.errors['name'], '顧客名を入力してください');
     expect(bad.errors['phone'], contains('10'));
-    expect(bad.errors['price'], '1円以上で入力してください');
+    expect(bad.errors.containsKey('price'), isFalse);
+    expect(bad.errors.containsKey('date'), isFalse);
+    final pinOnly = validateCustomer(
+      const CustomerDraft(name: '', phone: '', address: '', memo: '', contractDate: '', price: 0, statusId: 'active', lat: 35.68, lng: 139.76, locationSource: 'manual'),
+    );
+    expect(pinOnly.ok, isTrue);
+    final named = prepareCustomerDraft(
+      const CustomerDraft(name: '', phone: '', address: '東京都千代田区', memo: '', contractDate: '', price: 0, statusId: '', lat: 35.68, lng: 139.76),
+      now: DateTime(2026, 11, 13, 9, 5),
+      fallbackStatusId: 'prospect',
+    );
+    expect(named.name, '東京都千代田区');
+    expect(named.statusId, 'prospect');
+    final unlabeled = prepareCustomerDraft(
+      const CustomerDraft(name: '', phone: '', address: '', memo: '', contractDate: '', price: 0, statusId: 'prospect', lat: 35.68, lng: 139.76),
+      now: DateTime(2026, 11, 13, 9, 5),
+    );
+    expect(unlabeled.name, '未入力の顧客 2026/11/13 09:05');
     final future = validateCustomer(
       const CustomerDraft(
         name: '青葉',
