@@ -251,10 +251,21 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+          if (app.sheet == SheetLevel.closed)
+            Positioned(
+              left: 12,
+              right: 96,
+              bottom: 28 + safeBottom,
+              child: FilledButton(
+                onPressed: _registerAtCenter,
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 56)),
+                child: const Text('＋ここに登録', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              ),
+            ),
           if (app.sheet == SheetLevel.closed && _recall != null)
             Positioned(
               left: 12,
-              bottom: 28 + safeBottom,
+              bottom: 96 + safeBottom,
               child: FilledButton.icon(
                 onPressed: () => app.selectCustomer(_recall!.id),
                 icon: const Icon(Icons.assignment_ind),
@@ -265,7 +276,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
           if (app.sheet == SheetLevel.closed && app.drop != null)
             Positioned(
               left: 12,
-              bottom: 96 + safeBottom,
+              bottom: 164 + safeBottom,
               child: FilledButton(
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewCustomerPage(state: app))),
                 child: const Text('新規登録を続ける', style: TextStyle(fontSize: 18)),
@@ -570,7 +581,18 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     app.setSheet(SheetLevel.half);
   }
 
+  Future<void> _registerAtCenter() async {
+    final lat = _showGoogle ? _googleKey.currentState?.center.latitude : _fallbackKey.currentState?.centerLat;
+    final lng = _showGoogle ? _googleKey.currentState?.center.longitude : _fallbackKey.currentState?.centerLng;
+    await _placePin(lat ?? 35.682, lng ?? 139.772);
+  }
+
+  DateTime? _lastDrop;
+
   Future<void> _placePin(double lat, double lng) async {
+    final now = DateTime.now();
+    if (_lastDrop != null && now.difference(_lastDrop!) < const Duration(milliseconds: 800)) return;
+    _lastDrop = now;
     if (app.placingPin && app.selected != null) {
       app.moveSelectedPin(lat, lng);
       await app.persistSelectedPin();

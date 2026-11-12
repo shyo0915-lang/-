@@ -10,6 +10,7 @@ import '../logic/price_tiers.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import 'format.dart';
+import 'map_hold.dart';
 import 'pin_painter.dart';
 
 class SalesGoogleMap extends StatefulWidget {
@@ -26,13 +27,23 @@ class SalesGoogleMap extends StatefulWidget {
 class SalesGoogleMapState extends State<SalesGoogleMap> {
   GoogleMapController? _controller;
   double _zoom = 13;
+  LatLng _center = const LatLng(35.682, 139.772);
   final Map<String, BitmapDescriptor> _icons = {};
   BitmapDescriptor? _hereIcon;
+  HoldBinding? _hold;
+
+  LatLng get center => _center;
 
   @override
   void initState() {
     super.initState();
     _loadHereIcon();
+  }
+
+  @override
+  void dispose() {
+    _hold?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHereIcon() async {
@@ -54,8 +65,14 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
       mapToolbarEnabled: false,
       markers: markers,
       circles: _hereCircle(),
-      onMapCreated: (controller) => _controller = controller,
-      onCameraMove: (position) => _zoom = position.zoom,
+      onMapCreated: (controller) {
+        _controller = controller;
+        _hold ??= watchMapHold((client) => _holdAt(client.dx, client.dy));
+      },
+      onCameraMove: (position) {
+        _zoom = position.zoom;
+        _center = position.target;
+      },
       onCameraIdle: () => setState(() {}),
       onTap: (_) => widget.state.setSheet(SheetLevel.closed),
       onLongPress: (position) => widget.onLongPress(position.latitude, position.longitude),
@@ -64,6 +81,19 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
 
   Future<void> moveTo(double lat, double lng) async {
     await _controller?.animateCamera(CameraUpdate.newLatLng(LatLng(lat, lng)));
+  }
+
+  Future<void> _holdAt(double clientX, double clientY) async {
+    final controller = _controller;
+    final box = context.findRenderObject();
+    if (controller == null || box is! RenderBox || !box.hasSize) return;
+    final local = box.globalToLocal(Offset(clientX, clientY));
+    if (!box.size.contains(local)) return;
+    try {
+      final target = await controller.getLatLng(ScreenCoordinate(x: local.dx.round(), y: local.dy.round()));
+      if (!mounted) return;
+      widget.onLongPress(target.latitude, target.longitude);
+    } catch (_) {}
   }
 
   Set<Marker> _markers() {
@@ -121,8 +151,18 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose),
         anchor: const Offset(0.5, 1),
         zIndexInt: 900,
+        draggable: true,
         consumeTapEvents: true,
         infoWindow: const InfoWindow(title: '新規'),
+        onDragEnd: (position) {
+          final current = widget.state.drop;
+          if (current == null) return;
+          widget.state.setDrop(MapDrop(
+            lat: position.latitude,
+            lng: position.longitude,
+            draft: current.draft.copyWith(lat: position.latitude, lng: position.longitude),
+          ));
+        },
       ),
     };
   }
