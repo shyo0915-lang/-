@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../logic/cluster.dart';
+import '../logic/hold_gesture.dart';
 import '../logic/geo.dart';
 import '../logic/price_tiers.dart';
 import '../models/models.dart';
@@ -26,35 +25,12 @@ class FallbackMapState extends State<FallbackMap> {
   double centerLat = 35.682;
   double centerLng = 139.772;
   double scale = 14000;
-  Timer? _hold;
-  Offset? _holdAt;
-  var _moved = false;
+  final _hold = HoldGesture();
 
   @override
   void dispose() {
-    _hold?.cancel();
+    _hold.up();
     super.dispose();
-  }
-
-  void _armHold(Offset local, Size size) {
-    _hold?.cancel();
-    _holdAt = local;
-    _moved = false;
-    _hold = Timer(const Duration(milliseconds: 550), () {
-      if (!mounted || _moved || _holdAt == null) return;
-      final lat = centerLat - (local.dy - size.height / 2) / scale;
-      final lng = centerLng + (local.dx - size.width / 2) / scale;
-      widget.onLongPress(lat, lng);
-    });
-  }
-
-  void _cancelHoldIfMoved(Offset local) {
-    final origin = _holdAt;
-    if (origin == null) return;
-    if ((local - origin).distance > 16) {
-      _moved = true;
-      _hold?.cancel();
-    }
   }
 
   void zoomIn() => setState(() => scale = (scale * 1.4).clamp(2000, 80000));
@@ -80,15 +56,22 @@ class FallbackMapState extends State<FallbackMap> {
         }
         final clusters = clusterPins(points, radius: 46);
         return Listener(
-          onPointerDown: (event) => _armHold(event.localPosition, size),
-          onPointerMove: (event) => _cancelHoldIfMoved(event.localPosition),
-          onPointerUp: (_) => _hold?.cancel(),
-          onPointerCancel: (_) => _hold?.cancel(),
+          onPointerDown: (event) {
+            final local = event.localPosition;
+            _hold.down(local, () {
+              if (!mounted) return;
+              final lat = centerLat - (local.dy - size.height / 2) / scale;
+              final lng = centerLng + (local.dx - size.width / 2) / scale;
+              widget.onLongPress(lat, lng);
+            });
+          },
+          onPointerMove: (event) => _hold.move(event.localPosition),
+          onPointerUp: (_) => _hold.up(),
+          onPointerCancel: (_) => _hold.up(),
           child: GestureDetector(
           onScaleUpdate: (details) {
             if (details.focalPointDelta.distance > 2 || (details.scale - 1).abs() > 0.02) {
-              _moved = true;
-              _hold?.cancel();
+              _hold.up();
             }
             setState(() {
               centerLng -= details.focalPointDelta.dx / scale;
@@ -171,6 +154,12 @@ class FallbackMapState extends State<FallbackMap> {
       top: point.dy - 42,
       child: GestureDetector(
         onTap: () {},
+        onPanUpdate: (details) {
+          final lat = drop.lat - details.delta.dy / scale;
+          final lng = drop.lng + details.delta.dx / scale;
+          final next = drop.draft.copyWith(lat: lat, lng: lng);
+          widget.state.setDrop(MapDrop(lat: lat, lng: lng, draft: next));
+        },
         child: const Column(
           children: [
             Icon(Icons.location_on, color: Color(0xFFD93025), size: 42),
