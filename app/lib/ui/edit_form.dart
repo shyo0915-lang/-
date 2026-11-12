@@ -18,6 +18,7 @@ class CustomerEditForm extends StatefulWidget {
     this.warning,
     this.embedded = false,
     this.header,
+    this.onChanged,
   });
 
   final CustomerDraft initial;
@@ -29,6 +30,7 @@ class CustomerEditForm extends StatefulWidget {
   final String? warning;
   final bool embedded;
   final Widget? header;
+  final ValueChanged<CustomerDraft>? onChanged;
 
   @override
   State<CustomerEditForm> createState() => _CustomerEditFormState();
@@ -59,7 +61,13 @@ class _CustomerEditFormState extends State<CustomerEditForm> {
     _price = TextEditingController(text: draft.price > 0 ? formatYen(draft.price).replaceFirst('¥', '') : '');
     _date = draft.contractDate;
     _statusId = draft.statusId;
+    for (final controller in [_name, _phone, _address, _memo, _price]) {
+      controller.addListener(_emit);
+    }
+    _emit();
   }
+
+  void _emit() => widget.onChanged?.call(_draft);
 
   @override
   void dispose() {
@@ -203,7 +211,10 @@ class _CustomerEditFormState extends State<CustomerEditForm> {
                       side: BorderSide(color: selected ? Theme.of(context).colorScheme.onSurface : Theme.of(context).dividerColor, width: selected ? 2 : 1),
                     ),
                     child: InkWell(
-                      onTap: () => setState(() => _statusId = status.id),
+                      onTap: () {
+                        setState(() => _statusId = status.id);
+                        _emit();
+                      },
                       borderRadius: BorderRadius.circular(12),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 48),
@@ -275,6 +286,7 @@ class _CustomerEditFormState extends State<CustomerEditForm> {
     final picked = await showDatePicker(context: context, initialDate: initial, firstDate: DateTime(1990), lastDate: DateTime(2100), locale: const Locale('ja'));
     if (picked == null) return;
     setState(() => _date = formatInputDate(picked));
+    _emit();
   }
 
   Widget _field(String label, Widget child, String? error, {String? trailing}) {

@@ -11,9 +11,11 @@ import '../logic/validators.dart';
 import '../models/models.dart';
 import '../services/maps_loader.dart';
 import '../state/app_state.dart';
+import 'back_button.dart';
 import 'conflict_page.dart';
 import 'customer_photos.dart';
 import 'edit_form.dart';
+import 'new_customer_page.dart';
 import 'fallback_map.dart';
 import 'format.dart';
 import 'google_map_view.dart';
@@ -36,6 +38,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   bool _mapsBroken = false;
   StreamSubscription<Position>? _fixSub;
   Position? _here;
+  CustomerDraft? _editDraft;
 
   AppState get app => widget.state;
   bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
@@ -248,6 +251,26 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+          if (app.sheet == SheetLevel.closed && _recall != null)
+            Positioned(
+              left: 12,
+              bottom: 28 + safeBottom,
+              child: FilledButton.icon(
+                onPressed: () => app.selectCustomer(_recall!.id),
+                icon: const Icon(Icons.assignment_ind),
+                label: const Text('顧客情報に戻る', style: TextStyle(fontSize: 18)),
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 56)),
+              ),
+            ),
+          if (app.sheet == SheetLevel.closed && app.drop != null)
+            Positioned(
+              left: 12,
+              bottom: 96 + safeBottom,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewCustomerPage(state: app))),
+                child: const Text('新規登録を続ける', style: TextStyle(fontSize: 18)),
+              ),
+            ),
           if (app.sheet == SheetLevel.closed)
             Positioned(
               right: 16,
@@ -417,7 +440,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
           padding: const EdgeInsets.fromLTRB(4, 8, 8, 0),
           child: Row(
             children: [
-              TextButton(onPressed: () => app.setSheet(SheetLevel.half), child: const Text('‹ 地図', style: TextStyle(fontSize: 17))),
+              LargeBackButton(onPressed: () => _backToCard(customer)),
               const Expanded(child: Text('詳細・編集', textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
               OutlinedButton(onPressed: () => showShareSheet(context, app, customer), child: const Text('共有')),
               IconButton(
@@ -438,9 +461,10 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         Expanded(
           child: CustomerEditForm(
             key: ValueKey(customer.id),
-            initial: app.draftOf(customer),
+            initial: app.drafts[customer.id] ?? app.draftOf(customer),
             statuses: app.statuses,
             originalAddress: customer.address,
+            onChanged: (draft) => _editDraft = draft,
             onSuggest: app.suggest,
             updatedLabel: updated,
             onSave: (draft) => app.saveExisting(customer, draft),
@@ -502,13 +526,77 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _placePin(double lat, double lng) async {
-    if (app.selected == null) {
-      app.showToast('先に顧客を選ぶか、契約書から登録してください');
+  Customer? get _recall {
+    final id = app.recallId;
+    if (id == null) return null;
+    for (final customer in app.customers) {
+      if (customer.id == id) return customer;
+    }
+    return null;
+  }
+
+  bool _dirty(Customer customer, CustomerDraft draft) {
+    final origin = app.draftOf(customer);
+    return draft.name.trim() != origin.name.trim() ||
+        draft.phone.trim() != origin.phone.trim() ||
+        draft.address.trim() != origin.address.trim() ||
+        draft.memo.trim() != origin.memo.trim() ||
+        draft.contractDate != origin.contractDate ||
+        draft.price != origin.price ||
+        draft.statusId != origin.statusId;
+  }
+
+  Future<void> _backToCard(Customer customer) async {
+    final draft = _editDraft ?? app.drafts[customer.id] ?? app.draftOf(customer);
+    if (!_dirty(customer, draft)) {
+      app.forgetDraft(customer.id);
+      app.setSheet(SheetLevel.half);
       return;
     }
-    app.moveSelectedPin(lat, lng);
-    await app.persistSelectedPin();
+    final choice = await app.choose?.call('変更があります', ['保存する', '下書きとして残す', '破棄する']);
+    if (!mounted || choice == null) return;
+    if (choice == 0) {
+      await app.saveExisting(customer, draft);
+      app.forgetDraft(customer.id);
+      return;
+    }
+    if (choice == 1) {
+      app.rememberDraft(customer.id, draft);
+      app.setSheet(SheetLevel.half);
+      return;
+    }
+    app.forgetDraft(customer.id);
+    _editDraft = null;
+    app.setSheet(SheetLevel.half);
+  }
+
+  Future<void> _placePin(double lat, double lng) async {
+    if (app.placingPin && app.selected != null) {
+      app.moveSelectedPin(lat, lng);
+      await app.persistSelectedPin();
+      return;
+    }
+    final statusId = app.statuses.isEmpty ? '' : app.statuses.first.id;
+    var draft = CustomerDraft(
+      name: '',
+      phone: '',
+      address: '',
+      memo: '',
+      contractDate: '',
+      price: 0,
+      statusId: statusId,
+      lat: lat,
+      lng: lng,
+      locationSource: 'manual',
+    );
+    app.setDrop(MapDrop(lat: lat, lng: lng, draft: draft));
+    final address = await app.geocoder.reverseGeocode(lat, lng);
+    if (!mounted) return;
+    if (address != null && app.drop != null) {
+      draft = draft.copyWith(address: address);
+      app.setDrop(MapDrop(lat: lat, lng: lng, draft: draft));
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewCustomerPage(state: app)));
   }
 
   void _watchMaps() {

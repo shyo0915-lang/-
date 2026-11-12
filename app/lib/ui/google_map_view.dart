@@ -107,7 +107,24 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
         draggable: selected,
       );
     }).toSet()
-      ..addAll(_hereMarker());
+      ..addAll(_hereMarker())
+      ..addAll(_dropMarker());
+  }
+
+  Set<Marker> _dropMarker() {
+    final drop = widget.state.drop;
+    if (drop == null) return const {};
+    return {
+      Marker(
+        markerId: const MarkerId('drop'),
+        position: LatLng(drop.lat, drop.lng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose),
+        anchor: const Offset(0.5, 1),
+        zIndexInt: 900,
+        consumeTapEvents: true,
+        infoWindow: const InfoWindow(title: '新規'),
+      ),
+    };
   }
 
   Set<Circle> _hereCircle() {

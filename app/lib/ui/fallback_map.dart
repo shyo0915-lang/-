@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -24,6 +26,36 @@ class FallbackMapState extends State<FallbackMap> {
   double centerLat = 35.682;
   double centerLng = 139.772;
   double scale = 14000;
+  Timer? _hold;
+  Offset? _holdAt;
+  var _moved = false;
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    super.dispose();
+  }
+
+  void _armHold(Offset local, Size size) {
+    _hold?.cancel();
+    _holdAt = local;
+    _moved = false;
+    _hold = Timer(const Duration(milliseconds: 550), () {
+      if (!mounted || _moved || _holdAt == null) return;
+      final lat = centerLat - (local.dy - size.height / 2) / scale;
+      final lng = centerLng + (local.dx - size.width / 2) / scale;
+      widget.onLongPress(lat, lng);
+    });
+  }
+
+  void _cancelHoldIfMoved(Offset local) {
+    final origin = _holdAt;
+    if (origin == null) return;
+    if ((local - origin).distance > 16) {
+      _moved = true;
+      _hold?.cancel();
+    }
+  }
 
   void zoomIn() => setState(() => scale = (scale * 1.4).clamp(2000, 80000));
   void zoomOut() => setState(() => scale = (scale / 1.4).clamp(2000, 80000));
@@ -47,18 +79,22 @@ class FallbackMapState extends State<FallbackMap> {
           byId[customer.id] = customer;
         }
         final clusters = clusterPins(points, radius: 46);
-        return GestureDetector(
+        return Listener(
+          onPointerDown: (event) => _armHold(event.localPosition, size),
+          onPointerMove: (event) => _cancelHoldIfMoved(event.localPosition),
+          onPointerUp: (_) => _hold?.cancel(),
+          onPointerCancel: (_) => _hold?.cancel(),
+          child: GestureDetector(
           onScaleUpdate: (details) {
+            if (details.focalPointDelta.distance > 2 || (details.scale - 1).abs() > 0.02) {
+              _moved = true;
+              _hold?.cancel();
+            }
             setState(() {
               centerLng -= details.focalPointDelta.dx / scale;
               centerLat += details.focalPointDelta.dy / scale;
               if (details.scale != 1) scale = (scale * (1 + (details.scale - 1) * 0.15)).clamp(2000, 80000);
             });
-          },
-          onLongPressStart: (details) {
-            final lat = centerLat - (details.localPosition.dy - size.height / 2) / scale;
-            final lng = centerLng + (details.localPosition.dx - size.width / 2) / scale;
-            widget.onLongPress(lat, lng);
           },
           child: Stack(
             children: [
@@ -86,8 +122,10 @@ class FallbackMapState extends State<FallbackMap> {
                 else
                   _pin(byId[cluster.ids.single]!, cluster.x, cluster.y),
               if (widget.here != null) _hereDot(widget.here!, size),
+              if (widget.state.drop != null) _dropPin(widget.state.drop!, size),
             ],
           ),
+        ),
         );
       },
     );
@@ -121,6 +159,23 @@ class FallbackMapState extends State<FallbackMap> {
               selected: selected,
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dropPin(MapDrop drop, Size size) {
+    final point = _project(drop.lat, drop.lng, size);
+    return Positioned(
+      left: point.dx - 18,
+      top: point.dy - 42,
+      child: GestureDetector(
+        onTap: () {},
+        child: const Column(
+          children: [
+            Icon(Icons.location_on, color: Color(0xFFD93025), size: 42),
+            Text('新規', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFD93025))),
+          ],
         ),
       ),
     );
