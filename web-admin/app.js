@@ -106,7 +106,7 @@ function renderLogin() {
       <label>メールアドレス<input name="email" type="email" required /></label>
       <label>パスワード<input name="password" type="password" required /></label>
       <button class="primary" type="submit">ログイン</button>
-      <p class="muted">初回ユーザーはアプリの登録、または seed の taro@example.com / password123 を使います。</p>
+      <p class="muted">はじめての人は、スマホのアプリで会社名を付けて登録します。招待されたメールアドレスなら、その会社に入ります。</p>
       <p id="login-error" class="error"></p>
     </form>`;
   $("login").addEventListener("submit", async (event) => {
@@ -195,7 +195,43 @@ function render() {
   if (tab === "customers") renderCustomers();
   else if (tab === "statuses") renderStatuses();
   else if (tab === "tiers") renderTiers();
+  else if (tab === "org") renderOrg();
   else renderCsv();
+}
+
+let orgMessage = "";
+
+async function renderOrg() {
+  if (!hasRemote) {
+    app.innerHTML = `<section class="card"><h2>会社</h2><p>サンプルモードでは会社の招待はできません。</p></section>`;
+    return;
+  }
+  if (session.role !== "admin") {
+    app.innerHTML = `<section class="card"><h2>会社</h2><p>会社への招待は管理者だけができます。顧客の共有は顧客詳細から行えます。</p></section>`;
+    return;
+  }
+  const { data, error } = await client.from("org_invitations").select("id, email, role, expires_at, accepted_at, created_at").order("created_at", { ascending: false });
+  const rows = error ? [] : (data || []);
+  app.innerHTML = `
+    <section class="card">
+      <h2>会社への招待</h2>
+      <p class="muted">招待したメールアドレスでアプリから登録すると、この会社の担当者になります。会社名や org_id を自分で指定しても、他の会社には入れません。</p>
+      <label>メールアドレス<input id="org-email" type="email" /></label>
+      <div class="actions"><button class="primary" id="org-invite">招待する</button></div>
+      <p id="org-error" class="error">${esc(error ? "招待一覧を読めません。マイグレーションを適用してください。" : orgMessage)}</p>
+      <ul>${rows.map((item) => `<li>${esc(item.email)}（${item.accepted_at ? "参加済み" : "未参加"}）</li>`).join("") || "<li>招待はありません</li>"}</ul>
+    </section>`;
+  $("org-invite").addEventListener("click", async () => {
+    const email = $("org-email").value.trim().toLowerCase();
+    const { error: insertError } = await client.from("org_invitations").insert({
+      org_id: session.orgId,
+      email,
+      role: "member",
+      invited_by: session.id,
+    });
+    orgMessage = insertError ? "招待できませんでした。管理者だけが、未参加のメールを招待できます。" : "招待しました。相手はそのメールアドレスでアプリから登録してください。";
+    renderOrg();
+  });
 }
 
 function renderCustomers() {

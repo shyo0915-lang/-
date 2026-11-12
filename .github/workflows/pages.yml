@@ -40,8 +40,12 @@ jobs:
         run: |
           set -euo pipefail
           flutter pub get
-          URL="${SUPABASE_URL:-${VAR_SUPABASE_URL:-}}"
-          KEY="${SUPABASE_ANON_KEY:-${VAR_SUPABASE_ANON_KEY:-}}"
+          # Public anon key for https://oserilagkhkolcxianyw.supabase.co
+          # Secrets or Variables named SUPABASE_URL / SUPABASE_ANON_KEY override these.
+          DEFAULT_SUPABASE_URL="https://oserilagkhkolcxianyw.supabase.co"
+          DEFAULT_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zZXJpbGFna2hrb2xjeGlhbnl3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0ODg3MTgsImV4cCI6MjExMDA2NDcxOH0.CYbm84AWdFk59SGoJAReVd7wKMwlie6-E5m_fhrSHyE"
+          URL="${SUPABASE_URL:-${VAR_SUPABASE_URL:-$DEFAULT_SUPABASE_URL}}"
+          KEY="${SUPABASE_ANON_KEY:-${VAR_SUPABASE_ANON_KEY:-$DEFAULT_SUPABASE_ANON_KEY}}"
           # Referrer-restricted Maps JavaScript API key for https://shyo0915-lang.github.io/*
           # Secrets or Variables named MAPS_API_KEY override this public browser key.
           DEFAULT_BROWSER_MAPS_KEY="AIzaSyBYEvFFtt1SLGMioFDDsBJ2HLu1d18tAX8"
@@ -67,8 +71,8 @@ jobs:
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          url = os.environ.get("SUPABASE_URL") or os.environ.get("VAR_SUPABASE_URL") or ""
-          key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("VAR_SUPABASE_ANON_KEY") or ""
+          url = os.environ.get("SUPABASE_URL") or os.environ.get("VAR_SUPABASE_URL") or "https://oserilagkhkolcxianyw.supabase.co"
+          key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("VAR_SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zZXJpbGFna2hrb2xjeGlhbnl3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0ODg3MTgsImV4cCI6MjExMDA2NDcxOH0.CYbm84AWdFk59SGoJAReVd7wKMwlie6-E5m_fhrSHyE"
           Path("app/build/web/admin/config.js").write_text(
               "window.APP_CONFIG = "
               + json.dumps({"supabaseUrl": url, "supabaseAnonKey": key}, ensure_ascii=False)

@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -77,6 +77,16 @@ class SupabaseAppRepository implements AppRepository {
     }
   }
 
+  String? _authRedirect() {
+    final base = Uri.base;
+    var path = base.path;
+    if (!path.endsWith('/')) {
+      final slash = path.lastIndexOf('/');
+      path = slash < 0 ? '/' : path.substring(0, slash + 1);
+    }
+    return base.replace(path: path, query: '', fragment: '').toString();
+  }
+
   @override
   Future<String?> signUp({
     required String email,
@@ -89,6 +99,7 @@ class SupabaseAppRepository implements AppRepository {
         email: email.trim(),
         password: password,
         data: {'display_name': displayName.trim(), 'org_name': orgName.trim()},
+        emailRedirectTo: kIsWeb ? _authRedirect() : null,
       );
       if (result.session == null) {
         return '確認メールを送信しました。メールの手順を終えてからログインしてください。';
