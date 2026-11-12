@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../logic/map_camera.dart';
 import '../logic/validators.dart';
+import '../services/map_camera_store.dart';
 import '../models/models.dart';
 import '../services/maps_loader.dart';
 import '../state/app_state.dart';
@@ -39,6 +41,9 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   StreamSubscription<Position>? _fixSub;
   Position? _here;
   CustomerDraft? _editDraft;
+  MapCamera _view = MapCamera.initial;
+  var _cameraDecided = false;
+  var _userMovedMap = false;
 
   AppState get app => widget.state;
   bool get _showGoogle => app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
@@ -51,6 +56,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     app.choose = _choose;
     app.addListener(_onAppChanged);
     _startIfGranted();
+    _decideCamera();
     if (app.config.hasMaps) {
       _watchMaps();
     }
@@ -96,6 +102,49 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
       await _watch(moveCamera: false);
     }
+  }
+
+  Future<void> _decideCamera() async {
+    final saved = await MapCameraStore.load();
+    if (!mounted || _userMovedMap) return;
+    if (saved != null) {
+      setState(() {
+        _view = saved;
+        _cameraDecided = true;
+      });
+      return;
+    }
+    final permission = await Geolocator.checkPermission();
+    if (!mounted || _userMovedMap) return;
+    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+      try {
+        final position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 6));
+        if (!mounted || _userMovedMap) return;
+        setState(() {
+          _view = MapCamera(position.latitude, position.longitude, MapCamera.streetZoom);
+          _cameraDecided = true;
+        });
+        return;
+      } catch (_) {}
+    }
+    if (app.customers.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    if (!mounted || _userMovedMap) return;
+    final pins = [
+      for (final customer in app.customers)
+        if (customer.hasLocation) (lat: customer.lat!, lng: customer.lng!),
+    ];
+    setState(() {
+      _view = fitPins(pins) ?? MapCamera.initial;
+      _cameraDecided = true;
+    });
+  }
+
+  void _onCameraSettled(MapCamera camera) {
+    final shifted = (camera.lat - _view.lat).abs() > 0.0002 || (camera.lng - _view.lng).abs() > 0.0002 || (camera.zoom - _view.zoom).abs() > 0.2;
+    if (!_cameraDecided && shifted) _userMovedMap = true;
+    if (_cameraDecided || _userMovedMap) MapCameraStore.save(camera);
   }
 
   LocationSettings get _locationSettings => kIsWeb
@@ -158,8 +207,8 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         children: [
           Positioned.fill(
             child: _showGoogle
-                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here)
-                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin, here: _here),
+                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here, camera: _view, onCameraSettled: _onCameraSettled)
+                : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin, here: _here, camera: _view, onCameraSettled: _onCameraSettled),
           ),
           if (!app.repo.isOnline)
             const Positioned(
@@ -598,7 +647,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
       await app.persistSelectedPin();
       return;
     }
-    final statusId = app.statuses.isEmpty ? '' : app.statuses.first.id;
+    final statusId = app.prospectStatusId();
     var draft = CustomerDraft(
       name: '',
       phone: '',

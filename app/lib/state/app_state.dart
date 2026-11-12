@@ -182,7 +182,15 @@ class AppState extends ChangeNotifier {
     locationSource: customer.locationSource,
   );
 
+  String prospectStatusId() {
+    for (final status in statuses) {
+      if (status.label == '見込み') return status.id;
+    }
+    return statuses.isEmpty ? '' : statuses.first.id;
+  }
+
   Future<void> saveExisting(Customer original, CustomerDraft draft) async {
+    draft = prepareCustomerDraft(draft, fallbackStatusId: draft.statusId.isEmpty ? prospectStatusId() : draft.statusId);
     final validation = validateCustomer(draft);
     if (!validation.ok) {
       showToast('入力内容を確認してください');
@@ -257,7 +265,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Customer?> createCustomer(CustomerDraft draft, {String format = 'template', double? confidence, bool appendToExisting = true}) async {
-    final validation = validateCustomer(draft, requireLocation: draft.lat == null);
+    draft = prepareCustomerDraft(draft, fallbackStatusId: draft.statusId.isEmpty ? prospectStatusId() : draft.statusId);
+    final validation = validateCustomer(draft);
     if (!validation.ok) {
       showToast(validation.errors.values.join(' / '));
       return null;
@@ -302,7 +311,7 @@ class AppState extends ChangeNotifier {
       statusId: draft.statusId,
       version: 1,
       updatedAt: DateTime.now(),
-      contractId: _ids.v4(),
+      contractId: (draft.contractDate.trim().isNotEmpty || draft.price >= 1) ? _ids.v4() : null,
       contractDate: DateTime.tryParse(draft.contractDate),
       unitPrice: draft.price,
       contractFormat: format,

@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../logic/cluster.dart';
+import '../logic/map_camera.dart';
 import '../logic/price_tiers.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
@@ -14,11 +15,13 @@ import 'map_hold.dart';
 import 'pin_painter.dart';
 
 class SalesGoogleMap extends StatefulWidget {
-  const SalesGoogleMap({super.key, required this.state, required this.onLongPress, this.here});
+  const SalesGoogleMap({super.key, required this.state, required this.onLongPress, this.here, this.camera = MapCamera.initial, this.onCameraSettled});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
   final Position? here;
+  final MapCamera camera;
+  final ValueChanged<MapCamera>? onCameraSettled;
 
   @override
   State<SalesGoogleMap> createState() => SalesGoogleMapState();
@@ -26,8 +29,8 @@ class SalesGoogleMap extends StatefulWidget {
 
 class SalesGoogleMapState extends State<SalesGoogleMap> {
   GoogleMapController? _controller;
-  double _zoom = 13;
-  LatLng _center = const LatLng(35.682, 139.772);
+  late double _zoom = widget.camera.zoom;
+  late LatLng _center = LatLng(widget.camera.lat, widget.camera.lng);
   final Map<String, BitmapDescriptor> _icons = {};
   BitmapDescriptor? _hereIcon;
   HoldBinding? _hold;
@@ -38,6 +41,17 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
   void initState() {
     super.initState();
     _loadHereIcon();
+  }
+
+  @override
+  void didUpdateWidget(SalesGoogleMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.camera;
+    final prev = oldWidget.camera;
+    if (next.lat == prev.lat && next.lng == prev.lng && next.zoom == prev.zoom) return;
+    _center = LatLng(next.lat, next.lng);
+    _zoom = next.zoom;
+    _controller?.moveCamera(CameraUpdate.newLatLngZoom(_center, _zoom));
   }
 
   @override
@@ -59,7 +73,7 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
   Widget build(BuildContext context) {
     final markers = _markers();
     return GoogleMap(
-      initialCameraPosition: const CameraPosition(target: LatLng(35.682, 139.772), zoom: 13),
+      initialCameraPosition: CameraPosition(target: LatLng(widget.camera.lat, widget.camera.lng), zoom: widget.camera.zoom),
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
@@ -73,7 +87,10 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
         _zoom = position.zoom;
         _center = position.target;
       },
-      onCameraIdle: () => setState(() {}),
+      onCameraIdle: () {
+        widget.onCameraSettled?.call(MapCamera(_center.latitude, _center.longitude, _zoom));
+        setState(() {});
+      },
       onTap: (_) => widget.state.setSheet(SheetLevel.closed),
       onLongPress: (position) => widget.onLongPress(position.latitude, position.longitude),
     );

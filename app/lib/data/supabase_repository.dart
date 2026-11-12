@@ -486,8 +486,8 @@ class SupabaseAppRepository implements AppRepository {
     final creating = payload['creating'] == true;
     final row = {
       'name': customer.name.trim(),
-      'phone': formatJpPhone(customer.phone),
-      'address': customer.address.trim(),
+      'phone': _blankToNull(customer.phone.trim().isEmpty ? '' : formatJpPhone(customer.phone)),
+      'address': _blankToNull(customer.address.trim()),
       'memo': customer.memo.trim().isEmpty ? null : customer.memo.trim(),
       'lat': customer.lat,
       'lng': customer.lng,
@@ -537,8 +537,8 @@ class SupabaseAppRepository implements AppRepository {
     if (merged.conflicts.isEmpty) {
       await client.from('customers').update({
         'name': kept.name,
-        'phone': kept.phone,
-        'address': kept.address,
+        'phone': _blankToNull(kept.phone),
+        'address': _blankToNull(kept.address),
         'memo': kept.memo.isEmpty ? null : kept.memo,
         'status_id': kept.statusId,
         'lat': kept.lat,
@@ -567,10 +567,13 @@ class SupabaseAppRepository implements AppRepository {
   Future<List<SyncConflict>> localConflicts() => local.conflicts();
 
   Future<void> _writeContract(Customer customer, {required bool append}) async {
+    final hasDate = customer.contractDate != null;
+    final hasPrice = customer.unitPrice >= 1;
+    if (!hasDate && !hasPrice) return;
     final body = {
       'customer_id': customer.id,
-      'contract_date': _isoDate(customer.contractDate),
-      'unit_price': customer.unitPrice < 1 ? 1 : customer.unitPrice,
+      'contract_date': hasDate ? _isoDate(customer.contractDate) : null,
+      'unit_price': hasPrice ? customer.unitPrice : null,
       'format': customer.contractFormat,
       'ocr_confidence': customer.ocrConfidence,
     };
@@ -760,6 +763,8 @@ Customer _applyField(Customer customer, String field, String value) {
     _ => customer,
   };
 }
+
+String? _blankToNull(String value) => value.trim().isEmpty ? null : value.trim();
 
 String _isoDate(DateTime? date) {
   final value = date ?? DateTime.now();
