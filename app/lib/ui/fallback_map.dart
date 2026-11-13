@@ -224,8 +224,8 @@ class _HereDotPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     canvas.drawCircle(center, radius, Paint()..color = const Color(0x334285F4));
-    canvas.drawCircle(center, 9, Paint()..color = Colors.white);
-    canvas.drawCircle(center, 6, Paint()..color = const Color(0xFF1A73E8));
+    canvas.drawCircle(center, 20, Paint()..color = Colors.white);
+    canvas.drawCircle(center, 14, Paint()..color = const Color(0xFF1A73E8));
   }
 
   @override

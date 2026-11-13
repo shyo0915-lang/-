@@ -65,7 +65,7 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     if (bytes == null || !mounted) return;
     setState(() {
-      _hereIcon = BitmapDescriptor.bytes(bytes.buffer.asUint8List(), width: 28, height: 28);
+      _hereIcon = BitmapDescriptor.bytes(bytes.buffer.asUint8List(), width: 44, height: 44);
     });
   }
 
@@ -270,8 +270,8 @@ Future<ui.Image> _blueDotImage() {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   final center = const Offset(size / 2, size / 2);
-  canvas.drawCircle(center, 16, Paint()..color = const Color(0x553A7BFF));
-  canvas.drawCircle(center, 11, Paint()..color = Colors.white);
-  canvas.drawCircle(center, 8, Paint()..color = const Color(0xFF1A73E8));
+  canvas.drawCircle(center, 22, Paint()..color = const Color(0x553A7BFF));
+  canvas.drawCircle(center, 17, Paint()..color = Colors.white);
+  canvas.drawCircle(center, 12, Paint()..color = const Color(0xFF1A73E8));
   return recorder.endRecording().toImage(size.toInt(), size.toInt());
 }
