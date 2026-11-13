@@ -105,6 +105,28 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   }
 
   Future<void> _decideCamera() async {
+    // Startup shows the current location first. Only when the location
+    // cannot be obtained (permission denied or lookup failed) does it fall
+    // back to the saved camera, then to the customer pins / initial view.
+    var permission = await Geolocator.checkPermission();
+    if (!mounted || _userMovedMap) return;
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (!mounted || _userMovedMap) return;
+    }
+    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+      try {
+        final position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 6));
+        if (!mounted || _userMovedMap) return;
+        setState(() {
+          _here = position;
+          _view = MapCamera(position.latitude, position.longitude, MapCamera.streetZoom);
+          _cameraDecided = true;
+        });
+        await _watch(moveCamera: false);
+        return;
+      } catch (_) {}
+    }
     final saved = await MapCameraStore.load();
     if (!mounted || _userMovedMap) return;
     if (saved != null) {
@@ -113,19 +135,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         _cameraDecided = true;
       });
       return;
-    }
-    final permission = await Geolocator.checkPermission();
-    if (!mounted || _userMovedMap) return;
-    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
-      try {
-        final position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 6));
-        if (!mounted || _userMovedMap) return;
-        setState(() {
-          _view = MapCamera(position.latitude, position.longitude, MapCamera.streetZoom);
-          _cameraDecided = true;
-        });
-        return;
-      } catch (_) {}
     }
     if (app.customers.isEmpty) {
       await Future<void>.delayed(const Duration(milliseconds: 500));
