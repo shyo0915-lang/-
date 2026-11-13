@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light;
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", Meiryo, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  background: #f4f1ea;
+  color: #1f1f1f;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, select, textarea { font: inherit; }
+button { min-height: 44px; border-radius: 10px; border: 1px solid #d0d0d0; background: white; padding: 0 14px; cursor: pointer; }
+button.primary, button.active { background: #1a73e8; color: white; border-color: #1a73e8; }
+button.danger { color: #b3261e; }
+.top { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 20px; background: white; border-bottom: 1px solid #e4e4e4; position: sticky; top: 0; }
+.top nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.banner { margin: 0; padding: 10px 20px; background: #fff4d6; }
+.muted { color: #5f6368; margin-left: 8px; }
+main { padding: 16px 20px 48px; max-width: 1200px; margin: 0 auto; }
+.filters, .row, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filters input, .filters select, .card input, .card select, .card textarea { min-height: 44px; border: 1px solid #d0d0d0; border-radius: 10px; padding: 8px 12px; background: white; }
+.filters input[type="search"] { min-width: 240px; flex: 1; }
+table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+th { font-size: 13px; color: #5f6368; font-weight: 600; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #f7f9ff; }
+.card { background: white; border-radius: 16px; padding: 16px; display: grid; gap: 12px; }
+label { display: grid; gap: 6px; font-size: 14px; color: #5f6368; }
+textarea { min-height: 120px; resize: vertical; }
+.memo { white-space: pre-wrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 8px; background: #f1f3f4; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.error { color: #b3261e; }
+.grid-2 { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+img.contract, .photo-card img { width: 140px; height: 140px; object-fit: cover; border-radius: 12px; border: 1px solid #ddd; }
+.photo-card { display: inline-flex; flex-direction: column; gap: 6px; align-items: center; }
