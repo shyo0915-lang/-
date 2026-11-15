@@ -312,7 +312,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
           if (app.sheet == SheetLevel.closed)
             Positioned(
               left: 12,
-              right: 96,
+              right: 84,
               bottom: 28 + safeBottom,
               child: FilledButton(
                 onPressed: _registerAtCenter,
@@ -350,11 +350,11 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
             Positioned(
               right: 16,
               bottom: 28 + safeBottom,
-              child: FloatingActionButton.large(
+              child: FloatingActionButton(
                 heroTag: 'camera',
                 tooltip: '契約書を撮影して新規登録',
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OcrPage(state: app))),
-                child: const Icon(Icons.add_a_photo, size: 30),
+                child: const Icon(Icons.add_a_photo, size: 26),
               ),
             ),
           AnimatedPositioned(
