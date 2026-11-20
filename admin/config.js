@@ -1,0 +1,1 @@
+window.APP_CONFIG = {"supabaseUrl": "https://oserilagkhkolcxianyw.supabase.co", "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zZXJpbGFna2hrb2xjeGlhbnl3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0ODg3MTgsImV4cCI6MjExMDA2NDcxOH0.CYbm84AWdFk59SGoJAReVd7wKMwlie6-E5m_fhrSHyE"};

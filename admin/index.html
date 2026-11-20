@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>顧客CRM</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <strong>顧客CRM</strong>
+        <span id="who" class="muted"></span>
+      </div>
+      <nav>
+        <button data-tab="customers" class="active">顧客</button>
+        <button data-tab="statuses">ステータス</button>
+        <button data-tab="tiers">単価帯</button>
+        <button data-tab="csv">CSV</button>
+        <button data-tab="org">会社</button>
+      </nav>
+      <button id="logout" hidden>ログアウト</button>
+    </header>
+    <p id="banner" class="banner"></p>
+    <main id="app"></main>
+    <script src="./config.js"></script>
+    <script>
+      window.APP_CONFIG = window.APP_CONFIG || { supabaseUrl: "", supabaseAnonKey: "" };
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
