@@ -15,13 +15,14 @@ import 'map_hold.dart';
 import 'pin_painter.dart';
 
 class SalesGoogleMap extends StatefulWidget {
-  const SalesGoogleMap({super.key, required this.state, required this.onLongPress, this.here, this.camera = MapCamera.initial, this.onCameraSettled});
+  const SalesGoogleMap({super.key, required this.state, required this.onLongPress, this.here, this.camera = MapCamera.initial, this.onCameraSettled, this.satellite = false});
 
   final AppState state;
   final void Function(double lat, double lng) onLongPress;
   final Position? here;
   final MapCamera camera;
   final ValueChanged<MapCamera>? onCameraSettled;
+  final bool satellite;
 
   @override
   State<SalesGoogleMap> createState() => SalesGoogleMapState();
@@ -74,6 +75,7 @@ class SalesGoogleMapState extends State<SalesGoogleMap> {
     final markers = _markers();
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: LatLng(widget.camera.lat, widget.camera.lng), zoom: widget.camera.zoom),
+      mapType: widget.satellite ? MapType.hybrid : MapType.normal,
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
