@@ -15,6 +15,7 @@ import '../services/maps_loader.dart';
 import '../state/app_state.dart';
 import 'back_button.dart';
 import 'conflict_page.dart';
+import 'customer_carousel.dart';
 import 'customer_photos.dart';
 import 'edit_form.dart';
 import 'new_customer_page.dart';
@@ -44,6 +45,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   MapCamera _view = MapCamera.initial;
   var _cameraDecided = false;
   var _userMovedMap = false;
+  var _satellite = false;
 
   AppState get app => widget.state;
   bool get _showGoogle => app.config.useGoogleMap && app.config.hasMaps && googleMapsAvailable && !_mapsBroken;
@@ -205,10 +207,12 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
+    // The peak/half preview is now the cyzen-style card carousel, which
+    // needs a fixed height instead of the old 110 / 46% preview heights.
     final sheetHeight = switch (app.sheet) {
       SheetLevel.closed => 0.0,
-      SheetLevel.peak => 110.0,
-      SheetLevel.half => height * 0.46,
+      SheetLevel.peak => 300.0 + safeBottom,
+      SheetLevel.half => 300.0 + safeBottom,
       SheetLevel.full => height,
     };
     return Scaffold(
@@ -216,7 +220,7 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         children: [
           Positioned.fill(
             child: _showGoogle
-                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here, camera: _view, onCameraSettled: _onCameraSettled)
+                ? SalesGoogleMap(key: _googleKey, state: app, onLongPress: _placePin, here: _here, camera: _view, onCameraSettled: _onCameraSettled, satellite: _satellite)
                 : FallbackMap(key: _fallbackKey, state: app, onLongPress: _placePin, here: _here, camera: _view, onCameraSettled: _onCameraSettled),
           ),
           if (!app.repo.isOnline)
@@ -340,6 +344,12 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
                 child: const Text('新規登録を続ける', style: TextStyle(fontSize: 18)),
               ),
             ),
+          if (app.sheet == SheetLevel.closed && _showGoogle)
+            Positioned(
+              right: 16,
+              bottom: 188 + safeBottom,
+              child: _roundButton(_satellite ? Icons.map : Icons.satellite_alt, _satellite ? '通常の地図に切り替え' : '航空写真に切り替え', () => setState(() => _satellite = !_satellite)),
+            ),
           if (app.sheet == SheetLevel.closed)
             Positioned(
               right: 16,
@@ -364,13 +374,23 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
             right: 0,
             bottom: 0,
             height: sheetHeight,
-            child: app.selected == null
+            child: app.selected == null || app.sheet == SheetLevel.closed
                 ? const SizedBox.shrink()
                 : Material(
                     color: Theme.of(context).colorScheme.surface,
                     elevation: 12,
+                    clipBehavior: Clip.antiAlias,
                     borderRadius: BorderRadius.vertical(top: Radius.circular(app.sheet == SheetLevel.full ? 0 : 22)),
-                    child: app.sheet == SheetLevel.full ? _full(app.selected!) : _preview(app.selected!),
+                    child: app.sheet == SheetLevel.full
+                        ? _full(app.selected!)
+                        : CustomerCardCarousel(
+                            state: app,
+                            onSelect: (customer) => app.selectCustomer(customer.id),
+                            onCall: (customer) => _call(customer.phone),
+                            onNav: _nav,
+                            onDetails: _openFull,
+                            onClose: () => app.setSheet(SheetLevel.closed),
+                          ),
                   ),
           ),
           if (app.toast != null)
@@ -398,106 +418,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
       shape: const CircleBorder(),
       color: Colors.white,
       child: IconButton(tooltip: tooltip, onPressed: onTap, icon: Icon(icon), constraints: const BoxConstraints(minWidth: 48, minHeight: 48)),
-    );
-  }
-
-  Widget _preview(Customer customer) {
-    final status = app.statusOf(customer.statusId);
-    return GestureDetector(
-      onVerticalDragEnd: (details) {
-        final velocity = details.primaryVelocity ?? 0;
-        if (velocity < -800 || velocity < 0 && app.sheet == SheetLevel.half) {
-          _openFull();
-        } else if (velocity > 800) {
-          if (app.sheet == SheetLevel.peak) {
-            app.setSheet(SheetLevel.closed);
-          } else {
-            app.setSheet(SheetLevel.peak);
-          }
-        }
-      },
-      onTap: app.sheet == SheetLevel.half ? _openFull : null,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(child: Container(width: 44, height: 5, decoration: BoxDecoration(color: const Color(0xFFDADCE0), borderRadius: BorderRadius.circular(3)))),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Icon(Icons.circle, size: 14, color: colorFromHex(status?.colorHex ?? '#1A73E8')),
-                const SizedBox(width: 6),
-                Text(status?.label ?? '', style: const TextStyle(fontSize: 14, color: Color(0xFF5F6368))),
-                if (customer.pendingSync) ...[
-                  const SizedBox(width: 8),
-                  const Text('同期待ち', style: TextStyle(fontSize: 13, color: Color(0xFF8A5A00))),
-                ],
-                if (customer.sharedWithMe) ...[
-                  const SizedBox(width: 8),
-                  const Text('共有', style: TextStyle(fontSize: 13, color: Color(0xFF1A73E8))),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(customer.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-            if (app.sheet != SheetLevel.peak) ...[
-              const SizedBox(height: 4),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(customer.address, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-                      GestureDetector(
-                        onLongPress: () {
-                          Clipboard.setData(ClipboardData(text: customer.phone));
-                          app.showToast('電話番号をコピーしました');
-                        },
-                        child: Text(customer.phone, style: const TextStyle(fontSize: 16, color: Color(0xFF3C4043))),
-                      ),
-                      if (customer.memo.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(memoExcerpt(customer.memo), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
-                        ),
-                      const SizedBox(height: 8),
-                      if (customer.photos.isNotEmpty) CustomerPhotoStrip(state: app, customer: customer, compact: true),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _metric('契約日', formatIso(customer.contractDate)),
-                          const SizedBox(width: 20),
-                          _metric('単価（1回）', formatYen(customer.unitPrice)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Expanded(child: SizedBox(height: 56, child: FilledButton(onPressed: () => _call(customer.phone), child: const Text('電話する', style: TextStyle(fontSize: 18))))),
-                  const SizedBox(width: 10),
-                  Expanded(child: SizedBox(height: 56, child: OutlinedButton(onPressed: () => _nav(customer), child: const Text('ナビ', style: TextStyle(fontSize: 18))))),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Center(child: Text('タップ／上スワイプで詳細・編集', style: TextStyle(fontSize: 13, color: Color(0xFF80868B)))),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _metric(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF80868B))),
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-      ],
     );
   }
 
